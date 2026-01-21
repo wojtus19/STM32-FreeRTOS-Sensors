@@ -23,6 +23,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "FreeRTOS.h"
+#include "LCD_Screen.h"
+#include "shrek.h"
 #include "task.h"
 /* USER CODE END Includes */
 
@@ -48,6 +50,8 @@ I2S_HandleTypeDef hi2s3;
 
 SPI_HandleTypeDef hspi1;
 
+TIM_HandleTypeDef htim1;
+
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
@@ -61,6 +65,7 @@ static void MX_I2C1_Init(void);
 static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_TIM1_Init(void);
 void MX_USB_HOST_Process(void);
 
 /* USER CODE BEGIN PFP */
@@ -112,7 +117,13 @@ int main(void)
     MX_SPI1_Init();
     MX_USB_HOST_Init();
     MX_USART2_UART_Init();
+    MX_TIM1_Init();
     /* USER CODE BEGIN 2 */
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+
+    ScreenInit();
+    setPWM_PE9(150);
+    DrawImage((uint8_t*)shrek_img, 0, 0, LCD_WIDTH, LCD_HEIGHT);
 
     status = xTaskCreate(task1_handler, "Task-1", 200, "", 2, &task1_handle);
 
@@ -257,7 +268,16 @@ static void MX_SPI1_Init(void)
 {
 
     /* USER CODE BEGIN SPI1_Init 0 */
+    __HAL_RCC_SPI1_CLK_ENABLE();  // włącz zegar SPI1
+    __HAL_RCC_GPIOA_CLK_ENABLE(); // SPI1 używa pinów z portu A
 
+    GPIO_InitTypeDef GPIO_InitStruct = { 0 };
+    GPIO_InitStruct.Pin              = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7; // PA5=SCK, PA6=MISO, PA7=MOSI
+    GPIO_InitStruct.Mode             = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull             = GPIO_NOPULL;
+    GPIO_InitStruct.Speed            = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate        = GPIO_AF5_SPI1;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
     /* USER CODE END SPI1_Init 0 */
 
     /* USER CODE BEGIN SPI1_Init 1 */
@@ -271,7 +291,7 @@ static void MX_SPI1_Init(void)
     hspi1.Init.CLKPolarity       = SPI_POLARITY_LOW;
     hspi1.Init.CLKPhase          = SPI_PHASE_1EDGE;
     hspi1.Init.NSS               = SPI_NSS_SOFT;
-    hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+    hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
     hspi1.Init.FirstBit          = SPI_FIRSTBIT_MSB;
     hspi1.Init.TIMode            = SPI_TIMODE_DISABLE;
     hspi1.Init.CRCCalculation    = SPI_CRCCALCULATION_DISABLE;
@@ -283,6 +303,62 @@ static void MX_SPI1_Init(void)
     /* USER CODE BEGIN SPI1_Init 2 */
 
     /* USER CODE END SPI1_Init 2 */
+}
+
+/**
+ * @brief TIM1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM1_Init(void)
+{
+
+    /* USER CODE BEGIN TIM1_Init 0 */
+    TIM_OC_InitTypeDef sConfigOC = { 0 };
+
+    /* USER CODE END TIM1_Init 0 */
+
+    TIM_ClockConfigTypeDef sClockSourceConfig = { 0 };
+    TIM_MasterConfigTypeDef sMasterConfig     = { 0 };
+
+    /* USER CODE BEGIN TIM1_Init 1 */
+
+    /* USER CODE END TIM1_Init 1 */
+    htim1.Instance               = TIM1;
+    htim1.Init.Prescaler         = 84 - 1;
+    htim1.Init.CounterMode       = TIM_COUNTERMODE_UP;
+    htim1.Init.Period            = 255 - 1;
+    htim1.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;
+    htim1.Init.RepetitionCounter = 0;
+    htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+    if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+    if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+    sMasterConfig.MasterSlaveMode     = TIM_MASTERSLAVEMODE_DISABLE;
+    if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    /* USER CODE BEGIN TIM1_Init 2 */
+    sConfigOC.OCMode     = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse      = 0; // Początkowe wypełnienie = 0
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+    HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1);
+    sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+    sMasterConfig.MasterSlaveMode     = TIM_MASTERSLAVEMODE_DISABLE;
+    if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    /* USER CODE END TIM1_Init 2 */
 }
 
 /**
@@ -338,7 +414,7 @@ static void MX_GPIO_Init(void)
     __HAL_RCC_GPIOD_CLK_ENABLE();
 
     /*Configure GPIO pin Output Level */
-    HAL_GPIO_WritePin(CS_I2C_SPI_GPIO_Port, CS_I2C_SPI_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2 | CS_I2C_SPI_Pin | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6, GPIO_PIN_RESET);
 
     /*Configure GPIO pin Output Level */
     HAL_GPIO_WritePin(OTG_FS_PowerSwitchOn_GPIO_Port, OTG_FS_PowerSwitchOn_Pin, GPIO_PIN_SET);
@@ -346,12 +422,13 @@ static void MX_GPIO_Init(void)
     /*Configure GPIO pin Output Level */
     HAL_GPIO_WritePin(GPIOD, LD4_Pin | LD3_Pin | LD5_Pin | LD6_Pin | Audio_RST_Pin, GPIO_PIN_RESET);
 
-    /*Configure GPIO pin : CS_I2C_SPI_Pin */
-    GPIO_InitStruct.Pin   = CS_I2C_SPI_Pin;
+    /*Configure GPIO pins : PE2 CS_I2C_SPI_Pin PE4 PE5
+                             PE6 */
+    GPIO_InitStruct.Pin   = GPIO_PIN_2 | CS_I2C_SPI_Pin | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6;
     GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull  = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(CS_I2C_SPI_GPIO_Port, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
     /*Configure GPIO pin : OTG_FS_PowerSwitchOn_Pin */
     GPIO_InitStruct.Pin   = OTG_FS_PowerSwitchOn_Pin;
@@ -379,6 +456,18 @@ static void MX_GPIO_Init(void)
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(BOOT1_GPIO_Port, &GPIO_InitStruct);
+
+    /*Configure GPIO pin : PE11 */
+    GPIO_InitStruct.Pin  = GPIO_PIN_11;
+    GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+    /*Configure GPIO pin : PE12 */
+    GPIO_InitStruct.Pin  = GPIO_PIN_12;
+    GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
     /*Configure GPIO pin : CLK_IN_Pin */
     GPIO_InitStruct.Pin       = CLK_IN_Pin;
@@ -416,12 +505,12 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 static void task1_handler(void* parameters)
 {
-	/* 500ms delay */
+    /* 500ms delay */
     const TickType_t xDelay = 500 / portTICK_PERIOD_MS;
 
     for (;;)
     {
-    	/* Toggle Blue LED */
+        /* Toggle Blue LED */
         HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
         vTaskDelay(xDelay);
     }
@@ -429,12 +518,12 @@ static void task1_handler(void* parameters)
 
 static void task2_handler(void* parameters)
 {
-	/* 300ms delay */
+    /* 300ms delay */
     const TickType_t xDelay = 300 / portTICK_PERIOD_MS;
 
     for (;;)
     {
-    	/* Toggle orange LED */
+        /* Toggle orange LED */
         HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
         vTaskDelay(xDelay);
     }
