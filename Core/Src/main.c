@@ -22,10 +22,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "DistanceSensor.h"
 #include "FreeRTOS.h"
 #include "LCD_Screen.h"
 #include "shrek.h"
 #include "task.h"
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -71,6 +73,7 @@ void MX_USB_HOST_Process(void);
 /* USER CODE BEGIN PFP */
 static void task1_handler(void* parameters);
 static void task2_handler(void* parameters);
+bool_t I2C_Poll_Tof(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -123,7 +126,17 @@ int main(void)
 
     ScreenInit();
     setPWM_PE9(150);
-    DrawImage((uint8_t*)shrek_img, 0, 0, LCD_WIDTH, LCD_HEIGHT);
+    ClearWindow(0, 0, LCD_WIDTH, LCD_HEIGHT, BROWN);
+    bool_t found = I2C_Poll_Tof();
+    if (found)
+    {
+        // PrintfUart("VL53L0X Found");
+        DrawString(100, 120, "Found", &Font20, 0, GREEN, FALSE);
+    }
+
+    Init_VL53L0X(&hi2c1, TRUE);
+
+    // DrawImage((uint8_t*)shrek_img, 0, 0, LCD_WIDTH, LCD_HEIGHT);
 
     status = xTaskCreate(task1_handler, "Task-1", 200, "", 2, &task1_handle);
 
@@ -498,20 +511,39 @@ static void MX_GPIO_Init(void)
     HAL_GPIO_Init(MEMS_INT2_GPIO_Port, &GPIO_InitStruct);
 
     /* USER CODE BEGIN MX_GPIO_Init_2 */
-
+    GPIO_InitStruct.Pin       = GPIO_PIN_6 | GPIO_PIN_7;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_OD;
+    GPIO_InitStruct.Pull      = GPIO_PULLUP;
+    GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF4_I2C1;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
     /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+bool_t I2C_Poll_Tof(void)
+{
+    while (HAL_I2C_IsDeviceReady(&hi2c1, 0x29 << 1, 1, 10) != HAL_OK)
+    {
+        DrawString(20, 60, "X", &Font20, 0, RED, FALSE);
+    }
+    return TRUE;
+}
+
 static void task1_handler(void* parameters)
 {
-    /* 500ms delay */
-    const TickType_t xDelay = 500 / portTICK_PERIOD_MS;
-
+    /* 5000ms delay */
+    const TickType_t xDelay = 5000 / portTICK_PERIOD_MS;
+    uint16_t distance;
+    char distanceStr[20];
     for (;;)
     {
         /* Toggle Blue LED */
         HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
+        distance = readRangeSingleMillimeters();
+        itoa(distance, distanceStr, 10);
+        ClearWindow(0, 0, LCD_WIDTH, LCD_HEIGHT, BROWN);
+        DrawString(180, 120, distanceStr, &Font20, 0, GREEN, FALSE);
         vTaskDelay(xDelay);
     }
 }
