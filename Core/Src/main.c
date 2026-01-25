@@ -25,9 +25,11 @@
 #include "DistanceSensor.h"
 #include "FreeRTOS.h"
 #include "LCD_Screen.h"
+#include "logger.h"
 #include "shrek.h"
 #include "task.h"
 #include <stdlib.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -55,14 +57,16 @@ SPI_HandleTypeDef hspi1;
 TIM_HandleTypeDef htim1;
 
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
-
+TaskHandle_t logger_task_handle;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
@@ -71,8 +75,8 @@ static void MX_TIM1_Init(void);
 void MX_USB_HOST_Process(void);
 
 /* USER CODE BEGIN PFP */
-static void task1_handler(void* parameters);
-static void task2_handler(void* parameters);
+static void DistanceMeasureTask(void* parameters);
+static void InitTask(void* parameters);
 bool_t I2C_Poll_Tof(void);
 /* USER CODE END PFP */
 
@@ -90,8 +94,8 @@ int main(void)
 
     /* USER CODE BEGIN 1 */
 
-    TaskHandle_t task1_handle;
-    TaskHandle_t task2_handle;
+    TaskHandle_t distance_measure_task_handle;
+    TaskHandle_t init_task_handle;
 
     BaseType_t status;
 
@@ -115,6 +119,7 @@ int main(void)
 
     /* Initialize all configured peripherals */
     MX_GPIO_Init();
+    MX_DMA_Init();
     MX_I2C1_Init();
     MX_I2S3_Init();
     MX_SPI1_Init();
@@ -123,6 +128,8 @@ int main(void)
     MX_TIM1_Init();
     /* USER CODE BEGIN 2 */
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+
+    LoggerInit();
 
     ScreenInit();
     setPWM_PE9(150);
@@ -138,13 +145,21 @@ int main(void)
 
     // DrawImage((uint8_t*)shrek_img, 0, 0, LCD_WIDTH, LCD_HEIGHT);
 
-    status = xTaskCreate(task1_handler, "Task-1", 200, "", 2, &task1_handle);
+    status = xTaskCreate(InitTask, "Task-2", 200, "", 2, &init_task_handle);
 
     configASSERT(pdPASS == status);
 
-    status = xTaskCreate(task2_handler, "Task-2", 200, "", 2, &task2_handle);
+    status = xTaskCreate(DistanceMeasureTask, "Task-1", 200, "", 2, &distance_measure_task_handle);
 
     configASSERT(pdPASS == status);
+
+    status = xTaskCreate(LoggerTask, "Logger", 512, NULL, 2, &logger_task_handle);
+
+    configASSERT(pdPASS == status);
+
+    /* W/A: Set Priorities NVIC after CubeMX Code Generation */
+    HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
+    HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
 
     vTaskStartScheduler();
 
@@ -407,6 +422,21 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+ * Enable DMA controller clock
+ */
+static void MX_DMA_Init(void)
+{
+
+    /* DMA controller clock enable */
+    __HAL_RCC_DMA1_CLK_ENABLE();
+
+    /* DMA interrupt init */
+    /* DMA1_Stream6_IRQn interrupt configuration */
+    HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+}
+
+/**
  * @brief GPIO Initialization Function
  * @param None
  * @retval None
@@ -530,7 +560,7 @@ bool_t I2C_Poll_Tof(void)
     return TRUE;
 }
 
-static void task1_handler(void* parameters)
+static void DistanceMeasureTask(void* parameters)
 {
     /* 5000ms delay */
     const TickType_t xDelay = 5000 / portTICK_PERIOD_MS;
@@ -541,6 +571,7 @@ static void task1_handler(void* parameters)
         /* Toggle Blue LED */
         HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
         distance = readRangeSingleMillimeters();
+        LogPrintf("Distance: %d\n", distance);
         itoa(distance, distanceStr, 10);
         ClearWindow(0, 0, LCD_WIDTH, LCD_HEIGHT, BROWN);
         DrawString(180, 120, distanceStr, &Font20, 0, GREEN, FALSE);
@@ -548,18 +579,18 @@ static void task1_handler(void* parameters)
     }
 }
 
-static void task2_handler(void* parameters)
+static void InitTask(void* parameters)
 {
     /* 300ms delay */
     const TickType_t xDelay = 300 / portTICK_PERIOD_MS;
-
+    LogPrintf("Logger initialized at tick: %lu\n", xTaskGetTickCount());
     for (;;)
     {
-        /* Toggle orange LED */
         HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
         vTaskDelay(xDelay);
     }
 }
+
 /* USER CODE END 4 */
 
 /**
