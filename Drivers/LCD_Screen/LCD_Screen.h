@@ -16,36 +16,35 @@
 /**
  * image color
 **/
-#define WHITE         0xFFFF
-#define BLACK         0x0000
-#define BLUE          0x001F
-#define BRED          0XF81F
-#define GRED          0XFFE0
-#define GBLUE         0X07FF
-#define RED           0xF800
-#define MAGENTA       0xF81F
-#define GREEN         0x07E0
-#define CYAN          0x7FFF
-#define YELLOW        0xFFE0
-#define BROWN         0XBC40
-#define BRRED         0XFC07
-#define GRAY          0X8430
-#define DARKBLUE      0X01CF
-#define LIGHTBLUE     0X7D7C
-#define GRAYBLUE      0X5458
-#define LIGHTGREEN    0X841F
-#define LGRAY         0XC618
-#define LGRAYBLUE     0XA651
-#define LBBLUE        0X2B12
+#define WHITE       0xFFFF  // 0xFF 0xFF -> już OK
+#define BLACK       0x0000  // 0x00 0x00
+#define BLUE        0x1F00  // 0x00 0x1F
+#define BRED        0x1FF8  // 0xF8 0x1F
+#define GRED        0xE0FF  // 0xFF 0xE0
+#define GBLUE       0xFF07  // 0x07 0xFF
+#define RED         0x00F8  // 0xF8 0x00
+#define MAGENTA     0x1FF8  // 0xF8 0x1F
+#define GREEN       0xE007  // 0x07 0xE0
+#define CYAN        0xFF7F  // 0x7F 0xFF
+#define YELLOW      0xFFE0  // 0xE0 0xFF
+#define BROWN       0x40BC  // 0xBC 0x40
+#define BRRED       0x07FC  // 0xFC 0x07
+#define GRAY        0x3084  // 0x84 0x30
+#define DARKBLUE    0xCF01  // 0x01 0xCF
+#define LIGHTBLUE   0x7C7D  // 0x7D 0x7C
+#define GRAYBLUE    0x5854  // 0x54 0x58
+#define LIGHTGREEN  0x1F84  // 0x84 0x1F
+#define LGRAY       0x18C6  // 0xC6 0x18
+#define LGRAYBLUE   0x51A6  // 0xA6 0x51
+#define LBBLUE      0x122B  // 0x2B 0x12
 
 extern SPI_HandleTypeDef hspi1;
 
 void setPWM_PE9(uint16_t value);
 void Clear(uint16_t color);
 void SetPixel(uint16_t x, uint16_t y, uint16_t color);
-void DrawImage(const uint8_t* pImage, int16_t xStart, int16_t yStart, int16_t W_Image, int16_t H_Image);
+void DrawImage(const uint16_t* pImage, int16_t xStart, int16_t yStart, int16_t W_Image, int16_t H_Image);
 void ScreenInit();
-void ClearWindow(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd, uint16_t color);
 void SetWindowColor(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd, uint16_t Color);
 void SetCursor(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd);
 void DrawString(int16_t xStart, int16_t yStart, const char * pString, Font_t* font, int16_t colorBackground, int16_t colorForeround, uint8_t useBackgroundColor);

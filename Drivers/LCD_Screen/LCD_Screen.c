@@ -13,35 +13,41 @@
 
 #include "LCD_Screen.h"
 
-static void WriteReg(uint8_t data);
-static void WriteData_Word(uint16_t data);
+#define LCD_CS_LOW() HAL_GPIO_WritePin(CS_PIN, GPIO_PIN_RESET)
+#define LCD_CS_HIGH() HAL_GPIO_WritePin(CS_PIN, GPIO_PIN_SET)
+
+#define LCD_DC_LOW() HAL_GPIO_WritePin(DC_PIN, GPIO_PIN_RESET)
+#define LCD_DC_HIGH() HAL_GPIO_WritePin(DC_PIN, GPIO_PIN_SET)
+
+#define LCD_RST_LOW() HAL_GPIO_WritePin(RST_PIN, GPIO_PIN_RESET)
+#define LCD_RST_HIGH() HAL_GPIO_WritePin(RST_PIN, GPIO_PIN_SET)
+
+static void WriteData(uint8_t* data, uint32_t size);
+static void WriteData_Byte(uint8_t data);
 static void WriteReg(uint8_t data);
 
-static void WriteData_Word(uint16_t data)
+static void WriteData(uint8_t* data, uint32_t size)
 {
-    uint8_t rx = 0u;
-    uint8_t i  = (data >> 8) & 0xff;
-    HAL_GPIO_WritePin(CS_PIN, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(DC_PIN, GPIO_PIN_SET);
-    HAL_SPI_TransmitReceive(&hspi1, &i, &rx, 1, HAL_MAX_DELAY);
-    HAL_SPI_TransmitReceive(&hspi1, (uint8_t*)&data, &rx, 1, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(CS_PIN, GPIO_PIN_SET);
+    LCD_DC_HIGH();
+    LCD_CS_LOW();
+    HAL_SPI_Transmit(&hspi1, data, size, HAL_MAX_DELAY);
+    LCD_CS_HIGH();
 }
 
 static void WriteData_Byte(uint8_t data)
 {
-    HAL_GPIO_WritePin(CS_PIN, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(DC_PIN, GPIO_PIN_SET);
+    LCD_DC_HIGH();
+    LCD_CS_LOW();
     HAL_SPI_Transmit(&hspi1, (uint8_t*)&data, 1, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(CS_PIN, GPIO_PIN_SET);
+    LCD_CS_HIGH();
 }
 
 static void WriteReg(uint8_t data)
 {
-    HAL_GPIO_WritePin(CS_PIN, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(DC_PIN, GPIO_PIN_RESET);
+    LCD_DC_LOW();
+    LCD_CS_LOW();
     HAL_SPI_Transmit(&hspi1, (uint8_t*)&data, 1, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(CS_PIN, GPIO_PIN_SET);
+    LCD_CS_HIGH();
 }
 
 void SetCursor(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd)
@@ -60,23 +66,30 @@ void SetCursor(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd)
     WriteReg(0X2C);
 }
 
-void SetWindowcolor(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd, uint16_t color)
+void SetWindowColor(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd, uint16_t color)
 {
-    SetCursor(xStart, yStart, xEnd, yEnd);
-    WriteData_Word(color);
-}
 
-void ClearWindow(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd, uint16_t color)
-{
-    uint16_t i, j;
-    SetCursor(xStart, yStart, xEnd, yEnd);
-    for (i = yStart; i < yEnd; i++)
+    static uint16_t lineBuf[LCD_WIDTH];
+
+    uint16_t w = xEnd - xStart;
+    uint16_t h = yEnd - yStart;
+
+    for (uint32_t idx = 0u; idx < w; idx++)
     {
-        for (j = xStart; j < xEnd; j++)
-        {
-            WriteData_Word(color);
-        }
+        lineBuf[idx] = color;
     }
+
+    SetCursor(xStart, yStart, xEnd, yEnd);
+
+    LCD_DC_HIGH();
+    LCD_CS_LOW();
+
+    for (uint32_t row = 0u; row < h; row++)
+    {
+        HAL_SPI_Transmit(&hspi1, (uint8_t*)lineBuf, w * 2, HAL_MAX_DELAY);
+    }
+
+    LCD_CS_HIGH();
 }
 
 void ScreenReset()
@@ -91,87 +104,29 @@ void ScreenReset()
 
 void ScreenInit()
 {
-    ScreenReset();
-    WriteReg(0x36);
-    WriteData_Byte(0x00);
-    WriteReg(0x3A);
-    WriteData_Byte(0x05);
-    WriteReg(0xB2);
-    WriteData_Byte(0x0B);
-    WriteData_Byte(0x0B);
-    WriteData_Byte(0x00);
-    WriteData_Byte(0x33);
-    WriteData_Byte(0x35);
+    LCD_RST_LOW();
+    HAL_Delay(50);
+    LCD_RST_HIGH();
+    HAL_Delay(150);
 
-    WriteReg(0xB7);
-    WriteData_Byte(0x11);
-
-    WriteReg(0xBB);
-    WriteData_Byte(0x35);
-
-    WriteReg(0xC0);
-    WriteData_Byte(0x2C);
-
-    WriteReg(0xC2);
-    WriteData_Byte(0x01);
-
-    WriteReg(0xC3);
-    WriteData_Byte(0x0D);
-
-    WriteReg(0xC4);
-    WriteData_Byte(0x20);
-
-    WriteReg(0xC6);
-    WriteData_Byte(0x13);
-
-    WriteReg(0xD0);
-    WriteData_Byte(0xA4);
-    WriteData_Byte(0xA1);
-
-    WriteReg(0xD6);
-    WriteData_Byte(0xA1);
-
-    WriteReg(0xE0);
-    WriteData_Byte(0xF0);
-    WriteData_Byte(0x06);
-    WriteData_Byte(0x0B);
-    WriteData_Byte(0x0A);
-    WriteData_Byte(0x09);
-    WriteData_Byte(0x26);
-    WriteData_Byte(0x29);
-    WriteData_Byte(0x33);
-    WriteData_Byte(0x41);
-    WriteData_Byte(0x18);
-    WriteData_Byte(0x16);
-    WriteData_Byte(0x15);
-    WriteData_Byte(0x29);
-    WriteData_Byte(0x2D);
-
-    WriteReg(0xE1);
-    WriteData_Byte(0xF0);
-    WriteData_Byte(0x04);
-    WriteData_Byte(0x08);
-    WriteData_Byte(0x08);
-    WriteData_Byte(0x07);
-    WriteData_Byte(0x03);
-    WriteData_Byte(0x28);
-    WriteData_Byte(0x32);
-    WriteData_Byte(0x40);
-    WriteData_Byte(0x3B);
-    WriteData_Byte(0x19);
-    WriteData_Byte(0x18);
-    WriteData_Byte(0x2A);
-    WriteData_Byte(0x2E);
-
-    WriteReg(0xE4);
-    WriteData_Byte(0x25);
-    WriteData_Byte(0x00);
-    WriteData_Byte(0x00);
-
-    WriteReg(0x21);
-    WriteReg(0x11);
+    WriteReg(0x11); // SLPOUT
     HAL_Delay(120);
-    WriteReg(0x29);
+
+    // RGB565
+    WriteReg(0x3A);
+    uint8_t colmod = 0x55;
+    WriteData(&colmod, 1);
+
+    // BGR + portrait
+    WriteReg(0x36);
+    uint8_t madctl = 0x00;
+    WriteData(&madctl, 1);
+
+    WriteReg(0x21); // INVON
+    HAL_Delay(10);
+
+    WriteReg(0x29); // DISPON
+    HAL_Delay(20);
 }
 
 void setPWM_PE9(uint16_t value)
@@ -181,15 +136,7 @@ void setPWM_PE9(uint16_t value)
 
 void Clear(uint16_t color)
 {
-    uint16_t i, j;
-    SetCursor(0, 0, LCD_WIDTH, LCD_HEIGHT);
-    for (i = 0; i < LCD_WIDTH; i++)
-    {
-        for (j = 0; j < LCD_HEIGHT; j++)
-        {
-            WriteData_Word(color);
-        }
-    }
+	SetWindowColor(0, 0, LCD_WIDTH, LCD_HEIGHT, color);
 }
 
 void SetPixel(uint16_t x, uint16_t y, uint16_t color)
@@ -199,19 +146,33 @@ void SetPixel(uint16_t x, uint16_t y, uint16_t color)
         return;
     }
     SetCursor(x, y, x, y);
-    WriteData_Word(color);
+    WriteData((uint8_t*)&color, 2);
 }
 
-void DrawImage(const uint8_t* image, int16_t xStart, int16_t yStart, int16_t W_Image, int16_t H_Image)
+void DrawImage(const uint16_t* image, int16_t xStart, int16_t yStart, int16_t xEnd, int16_t yEnd)
 {
-    int i, j;
-    for (j = 0; j < H_Image; j++)
+
+    static uint16_t lineBuf[LCD_WIDTH];
+
+    if ((xStart + xEnd) > LCD_WIDTH || (yStart + yEnd) > LCD_HEIGHT)
+        return;
+
+    SetCursor(xStart, yStart, xStart + xEnd - 1, yStart + yEnd - 1);
+
+    LCD_DC_HIGH();
+    LCD_CS_LOW();
+
+    for (uint32_t row = 0u; row < yEnd; row++)
     {
-        for (i = 0; i < W_Image; i++)
+        for (uint32_t col = 0u; col < xEnd; col++)
         {
-            SetPixel(xStart + i, yStart + j, image[j * W_Image * 2 + i * 2 + 1] << 8 | image[j * W_Image * 2 + i * 2]);
+            lineBuf[col] = image[row * xEnd + col];
         }
+
+        HAL_SPI_Transmit(&hspi1, (uint8_t*)lineBuf, xEnd * 2, HAL_MAX_DELAY);
     }
+
+    LCD_CS_HIGH();
 }
 
 void DrawString(int16_t xStart, int16_t yStart, const char* pString, Font_t* font, int16_t colorBackground, int16_t colorForeround, uint8_t useBackgroundColor)

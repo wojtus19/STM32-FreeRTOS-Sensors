@@ -133,17 +133,14 @@ int main(void)
 
     ScreenInit();
     setPWM_PE9(150);
-    ClearWindow(0, 0, LCD_WIDTH, LCD_HEIGHT, BROWN);
+    SetWindowColor(0, 0, LCD_WIDTH, LCD_HEIGHT, BROWN);
     bool_t found = I2C_Poll_Tof();
     if (found)
     {
-        // PrintfUart("VL53L0X Found");
         DrawString(100, 120, "Found", &Font20, 0, GREEN, FALSE);
     }
 
     Init_VL53L0X(&hi2c1, TRUE);
-
-    // DrawImage((uint8_t*)shrek_img, 0, 0, LCD_WIDTH, LCD_HEIGHT);
 
     status = xTaskCreate(InitTask, "Task-2", 200, "", 2, &init_task_handle);
 
@@ -319,7 +316,7 @@ static void MX_SPI1_Init(void)
     hspi1.Init.CLKPolarity       = SPI_POLARITY_LOW;
     hspi1.Init.CLKPhase          = SPI_PHASE_1EDGE;
     hspi1.Init.NSS               = SPI_NSS_SOFT;
-    hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+    hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
     hspi1.Init.FirstBit          = SPI_FIRSTBIT_MSB;
     hspi1.Init.TIMode            = SPI_TIMODE_DISABLE;
     hspi1.Init.CRCCalculation    = SPI_CRCCALCULATION_DISABLE;
@@ -573,7 +570,7 @@ static void DistanceMeasureTask(void* parameters)
         distance = readRangeSingleMillimeters();
         LogPrintf("Distance: %d\n", distance);
         itoa(distance, distanceStr, 10);
-        ClearWindow(0, 0, LCD_WIDTH, LCD_HEIGHT, BROWN);
+        SetWindowColor(0, 0, LCD_WIDTH, LCD_HEIGHT, BROWN);
         DrawString(180, 120, distanceStr, &Font20, 0, GREEN, FALSE);
         vTaskDelay(xDelay);
     }
