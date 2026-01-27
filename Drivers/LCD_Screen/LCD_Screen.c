@@ -12,6 +12,17 @@
  */
 
 #include "LCD_Screen.h"
+#include "FreeRTOS.h"
+#include "logger.h"
+#include "memory_utils.h"
+#include "semphr.h"
+#include "stream_buffer.h"
+#include <string.h>
+
+#define DMA_COLOR_CHUNK_PIXELS 256
+#define DMA_COLOR_CHUNK_BYTES (DMA_COLOR_CHUNK_PIXELS * 2)
+#define LCD_DMA_CHUNK_SIZE 4096
+#define LCD_QUEUE_DEPTH 2 // double buffering
 
 #define LCD_CS_LOW() HAL_GPIO_WritePin(CS_PIN, GPIO_PIN_RESET)
 #define LCD_CS_HIGH() HAL_GPIO_WritePin(CS_PIN, GPIO_PIN_SET)
@@ -25,6 +36,57 @@
 static void WriteData(uint8_t* data, uint32_t size);
 static void WriteData_Byte(uint8_t data);
 static void WriteReg(uint8_t data);
+static void LCDTaskInit(void);
+static void FillScreenDMA(uint16_t color, uint32_t pixel_count);
+static void FillImageDMA(const uint16_t* pixels, uint32_t pixel_count);
+static void DrawString(int16_t xStart, int16_t yStart, const char* pString, Font_t* font, int16_t colorBackground, int16_t colorForeground);
+static void DrawChar(int16_t xPoint, int16_t yPoint, const char ascii_char, Font_t* font, int16_t colorBackground, int16_t colorForeground);
+
+SemaphoreHandle_t spiDmaDoneSem;
+extern TaskHandle_t LCD_screen_task_handle;
+static QueueHandle_t lcdQueue;
+
+typedef enum lcd_cmd_t
+{
+    LCD_CMD_FILL_SCREEN,
+    LCD_CMD_FILL_RECT,
+    LCD_CMD_DRAW_IMAGE,
+    LCD_CMD_DRAW_TEXT
+} lcd_cmd_t;
+
+typedef struct lcd_frame_t
+{
+    lcd_cmd_t type;
+    union
+    {
+        struct
+        {
+            uint16_t color;
+        } fill_screen;
+        struct
+        {
+            uint16_t xStart, yStart;
+            uint16_t xEnd, yEnd;
+            uint16_t color;
+        } fill_rect;
+
+        struct
+        {
+            uint16_t xStart, yStart;
+            uint16_t xEnd, yEnd;
+            const uint16_t* pixels;
+        } image;
+        struct
+        {
+            uint16_t xStart, yStart;
+            const char* text;
+            uint16_t color;
+            uint16_t bg;
+            Font_t* font;
+        } text;
+    } data;
+
+} lcd_frame_t;
 
 static void WriteData(uint8_t* data, uint32_t size)
 {
@@ -50,7 +112,7 @@ static void WriteReg(uint8_t data)
     LCD_CS_HIGH();
 }
 
-void SetCursor(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd)
+void SetWindow(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd)
 {
     WriteReg(0x2A);
     WriteData_Byte(xStart >> 8);
@@ -66,32 +128,6 @@ void SetCursor(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd)
     WriteReg(0X2C);
 }
 
-void SetWindowColor(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd, uint16_t color)
-{
-
-    static uint16_t lineBuf[LCD_WIDTH];
-
-    uint16_t w = xEnd - xStart;
-    uint16_t h = yEnd - yStart;
-
-    for (uint32_t idx = 0u; idx < w; idx++)
-    {
-        lineBuf[idx] = color;
-    }
-
-    SetCursor(xStart, yStart, xEnd, yEnd);
-
-    LCD_DC_HIGH();
-    LCD_CS_LOW();
-
-    for (uint32_t row = 0u; row < h; row++)
-    {
-        HAL_SPI_Transmit(&hspi1, (uint8_t*)lineBuf, w * 2, HAL_MAX_DELAY);
-    }
-
-    LCD_CS_HIGH();
-}
-
 void ScreenReset()
 {
     HAL_GPIO_WritePin(CS_PIN, GPIO_PIN_RESET);
@@ -102,8 +138,9 @@ void ScreenReset()
     HAL_Delay(20);
 }
 
-void ScreenInit()
+void LCD_ScreenInit()
 {
+    LCDTaskInit();
     LCD_RST_LOW();
     HAL_Delay(50);
     LCD_RST_HIGH();
@@ -129,129 +166,264 @@ void ScreenInit()
     HAL_Delay(20);
 }
 
-void setPWM_PE9(uint16_t value)
+void LCD_ChangeBrightness(uint16_t value)
 {
     TIM1->CCR1 = value;
 }
 
-void Clear(uint16_t color)
+void LCDScreenTask(void* argument)
 {
-	SetWindowColor(0, 0, LCD_WIDTH, LCD_HEIGHT, color);
-}
-
-void SetPixel(uint16_t x, uint16_t y, uint16_t color)
-{
-    if (x > LCD_WIDTH || y > LCD_HEIGHT)
+    lcd_frame_t frame;
+    uint32_t pixel_count = 0u;
+    for (;;)
     {
-        return;
-    }
-    SetCursor(x, y, x, y);
-    WriteData((uint8_t*)&color, 2);
-}
-
-void DrawImage(const uint16_t* image, int16_t xStart, int16_t yStart, int16_t xEnd, int16_t yEnd)
-{
-
-    static uint16_t lineBuf[LCD_WIDTH];
-
-    if ((xStart + xEnd) > LCD_WIDTH || (yStart + yEnd) > LCD_HEIGHT)
-        return;
-
-    SetCursor(xStart, yStart, xStart + xEnd - 1, yStart + yEnd - 1);
-
-    LCD_DC_HIGH();
-    LCD_CS_LOW();
-
-    for (uint32_t row = 0u; row < yEnd; row++)
-    {
-        for (uint32_t col = 0u; col < xEnd; col++)
+        xQueueReceive(lcdQueue, &frame, portMAX_DELAY);
+        LogPrintf("ScreenTask Enter\n");
+        switch (frame.type)
         {
-            lineBuf[col] = image[row * xEnd + col];
+        case LCD_CMD_FILL_SCREEN:
+            LogPrintf("LCD_CMD_FILL_SCREEN\n");
+            SetWindow(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
+            pixel_count = LCD_WIDTH * LCD_HEIGHT;
+            FillScreenDMA(frame.data.fill_screen.color, pixel_count);
+            break;
+
+        case LCD_CMD_FILL_RECT:
+            LogPrintf("LCD_CMD_FILL_RECT\n");
+            SetWindow(frame.data.fill_rect.xStart, frame.data.fill_rect.yStart, frame.data.fill_rect.xEnd - 1, frame.data.fill_rect.yEnd - 1);
+            pixel_count = (frame.data.fill_rect.xEnd - frame.data.fill_rect.xStart) * (frame.data.fill_rect.yEnd - frame.data.fill_rect.yStart);
+            FillScreenDMA(frame.data.fill_rect.color, pixel_count);
+            break;
+
+        case LCD_CMD_DRAW_IMAGE:
+            LogPrintf("LCD_CMD_DRAW_IMAGE\n");
+            SetWindow(frame.data.image.xStart, frame.data.image.yStart, frame.data.image.xEnd - 1, frame.data.image.yEnd - 1);
+            pixel_count = (frame.data.fill_rect.xEnd - frame.data.fill_rect.xStart) * (frame.data.fill_rect.yEnd - frame.data.fill_rect.yStart);
+            FillImageDMA(frame.data.image.pixels, pixel_count);
+            break;
+
+        case LCD_CMD_DRAW_TEXT:
+            LogPrintf("LCD_CMD_DRAW_TEXT\n");
+            DrawString(frame.data.text.xStart, frame.data.text.yStart, frame.data.text.text, frame.data.text.font, frame.data.text.bg, frame.data.text.color);
+            break;
         }
-
-        HAL_SPI_Transmit(&hspi1, (uint8_t*)lineBuf, xEnd * 2, HAL_MAX_DELAY);
     }
-
-    LCD_CS_HIGH();
 }
 
-void DrawString(int16_t xStart, int16_t yStart, const char* pString, Font_t* font, int16_t colorBackground, int16_t colorForeround, uint8_t useBackgroundColor)
+static void DrawString(int16_t xStart, int16_t yStart, const char* pString, Font_t* font, int16_t colorBackground, int16_t colorForeground)
 {
     int16_t xPoint = xStart;
     int16_t yPoint = yStart;
 
-    // if (xStart > LCD_WIDTH || yStart > LCD_HEIGHT) {
-    //     Debug("Paint_DrawString_EN Input exceeds the normal display range\r\n");
-    //     return;
-    // }
-
     while (*pString != '\0')
     {
         // if X direction filled , reposition to(xStart,yPoint),yPoint is Y direction plus the Height of the character
-        if ((xPoint + font->Width) > LCD_WIDTH)
+        if ((xPoint + font->width) > LCD_WIDTH)
         {
             xPoint = xStart;
-            yPoint += font->Height;
+            yPoint += font->height;
         }
 
         // If the Y direction is full, reposition to(xStart, yStart)
-        if ((yPoint + font->Height) > LCD_HEIGHT)
+        if ((yPoint + font->height) > LCD_HEIGHT)
         {
             xPoint = xStart;
             yPoint = yStart;
         }
-        DrawChar(xPoint, yPoint, *pString, font, colorBackground, colorForeround, useBackgroundColor);
+        DrawChar(xPoint, yPoint, *pString, font, colorBackground, colorForeground);
 
         // The next character of the address
         pString++;
 
         // The next word of the abscissa increases the font of the broadband
-        xPoint += font->Width;
+        xPoint += font->width;
     }
 }
 
-void DrawChar(int16_t xPoint, int16_t yPoint, const char asciiChar, Font_t* font, int16_t colorBackground, int16_t colorForeround, uint8_t useBackgroundColor)
+static void DrawChar(int16_t xPoint, int16_t yPoint, const char ascii_char, Font_t* font, int16_t colorBackground, int16_t colorForeground)
 {
-    int16_t page, Column;
+    uint32_t pixel_count = font->width * font->height;
+    uint16_t* buffer     = pvPortMalloc(pixel_count * sizeof(uint16_t));
+    configASSERT(buffer);
+    int16_t page, column;
 
-    // if (xPoint > LCD_WIDTH || yPoint > LCD_HEIGHT) {
-    //     Debug("Paint_DrawChar Input exceeds the normal display range\r\n");
-    //     return;
-    // }
-    uint32_t Char_Offset     = (asciiChar - ' ') * font->Height * (font->Width / 8 + (font->Width % 8 ? 1 : 0));
-    const unsigned char* ptr = &font->table[Char_Offset];
+    uint32_t char_offset     = (ascii_char - ' ') * font->height * (font->width / 8 + (font->width % 8 ? 1 : 0));
+    const unsigned char* ptr = &font->table[char_offset];
 
-    for (page = 0; page < font->Height; page++)
+    for (page = 0; page < font->height; page++)
     {
-        for (Column = 0; Column < font->Width; Column++)
+        for (column = 0; column < font->width; column++)
         {
 
             // To determine whether the font background color and screen background color is consistent
             if (WHITE == colorBackground)
             { // this process is to speed up the scan
-                if ((*ptr) & (0x80 >> (Column % 8)))
-                    SetPixel(xPoint + Column, yPoint + page, colorForeround);
+                if ((*ptr) & (0x80 >> (column % 8)))
+                {
+                    buffer[page * font->width + column] = colorForeground;
+                }
             }
             else
             {
-                if ((*ptr) & (0x80 >> (Column % 8)))
+                if ((*ptr) & (0x80 >> (column % 8)))
                 {
-                    SetPixel(xPoint + Column, yPoint + page, colorForeround);
+                    buffer[page * font->width + column] = colorForeground;
                 }
-                else if (useBackgroundColor != FALSE)
+                else // if (useBackgroundColor != FALSE)
                 {
-                    SetPixel(xPoint + Column, yPoint + page, colorBackground);
+                    buffer[page * font->width + column] = colorBackground;
                 }
             }
             // One pixel is 8 bits
-            if (Column % 8 == 7)
+            if (column % 8 == 7)
             {
                 ptr++;
             }
         } /* Write a line */
-        if (font->Width % 8 != 0)
+        if (font->width % 8 != 0)
         {
             ptr++;
         }
-    } /* Write all */
+    }
+    SetWindow(xPoint, yPoint, xPoint + font->width - 1, yPoint + font->height - 1);
+    FillImageDMA(buffer, pixel_count);
+    vPortFree(buffer);
+}
+
+void LCD_FillScreen(uint16_t color)
+{
+    lcd_frame_t frame;
+
+    frame.type                   = LCD_CMD_FILL_SCREEN;
+    frame.data.fill_screen.color = color;
+
+    if (xQueueSend(lcdQueue, &frame, portMAX_DELAY) != pdPASS)
+    {
+        LogPrintf("LCD Queue timeout");
+    }
+}
+
+void LCD_DrawImage(const uint16_t* image, int16_t xStart, int16_t yStart, int16_t xEnd, int16_t yEnd)
+{
+    lcd_frame_t frame;
+
+    frame.type              = LCD_CMD_DRAW_IMAGE;
+    frame.data.image.pixels = image;
+    frame.data.image.xStart = xStart;
+    frame.data.image.yStart = yStart;
+    frame.data.image.xEnd   = xEnd;
+    frame.data.image.yEnd   = yEnd;
+
+    if (xQueueSend(lcdQueue, &frame, portMAX_DELAY) != pdPASS)
+    {
+        LogPrintf("LCD Queue timeout");
+    }
+}
+
+void LCD_FillRect(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd, uint16_t color)
+{
+    lcd_frame_t frame;
+
+    frame.type                  = LCD_CMD_FILL_RECT;
+    frame.data.fill_rect.color  = color;
+    frame.data.fill_rect.xStart = xStart;
+    frame.data.fill_rect.yStart = yStart;
+    frame.data.fill_rect.xEnd   = xEnd;
+    frame.data.fill_rect.yEnd   = yEnd;
+
+    if (xQueueSend(lcdQueue, &frame, portMAX_DELAY) != pdPASS)
+    {
+        LogPrintf("LCD Queue timeout");
+    }
+}
+
+void LCD_DrawString(int16_t xStart, int16_t yStart, const char* pString, Font_t* font, int16_t colorForeground, int16_t colorBackground)
+{
+    lcd_frame_t frame;
+
+    frame.type             = LCD_CMD_DRAW_TEXT;
+    frame.data.text.xStart = xStart;
+    frame.data.text.yStart = yStart;
+    frame.data.text.text   = pString;
+    frame.data.text.color  = colorForeground;
+    frame.data.text.bg     = colorBackground;
+    frame.data.text.font   = font;
+
+    if (xQueueSend(lcdQueue, &frame, portMAX_DELAY) != pdPASS)
+    {
+        LogPrintf("LCD Queue timeout");
+    }
+}
+
+static void LCDTaskInit(void)
+{
+    spiDmaDoneSem = xSemaphoreCreateBinary();
+
+    lcdQueue = xQueueCreate(LCD_QUEUE_DEPTH, sizeof(lcd_frame_t));
+}
+
+static void FillImageDMA(const uint16_t* image, uint32_t pixel_count)
+{
+    static uint16_t image_buf[DMA_COLOR_CHUNK_PIXELS];
+
+    LogPrintf("FillImageDMA enter\n");
+
+    LCD_CS_LOW();
+    LCD_DC_HIGH();
+
+    uint32_t remaining = pixel_count;
+    uint32_t cpyIdx    = 0u;
+    while (remaining > 0)
+    {
+        uint32_t pixels = (remaining > DMA_COLOR_CHUNK_PIXELS) ? DMA_COLOR_CHUNK_PIXELS : remaining;
+
+        memcpy(image_buf, &image[cpyIdx], pixels * 2);
+
+        HAL_SPI_Transmit_DMA(&hspi1, (uint8_t*)image_buf, pixels * 2);
+
+        xSemaphoreTake(spiDmaDoneSem, portMAX_DELAY);
+
+        remaining -= pixels;
+        cpyIdx += pixels;
+    }
+    LCD_CS_HIGH();
+    LogPrintf("LCD frame end\n");
+}
+
+static void FillScreenDMA(uint16_t color, uint32_t pixel_count)
+{
+    static uint16_t color_buf[DMA_COLOR_CHUNK_PIXELS];
+
+    LogPrintf("FillScreenDMA enter\n");
+    for (uint32_t idx = 0; idx < DMA_COLOR_CHUNK_PIXELS; idx++)
+    {
+        color_buf[idx] = color;
+    }
+
+    LCD_CS_LOW();
+    LCD_DC_HIGH();
+
+    uint32_t remaining = pixel_count;
+    while (remaining > 0)
+    {
+        uint32_t pixels = (remaining > DMA_COLOR_CHUNK_PIXELS) ? DMA_COLOR_CHUNK_PIXELS : remaining;
+
+        HAL_SPI_Transmit_DMA(&hspi1, (uint8_t*)color_buf, pixels * 2);
+
+        xSemaphoreTake(spiDmaDoneSem, portMAX_DELAY);
+
+        remaining -= pixels;
+    }
+    LCD_CS_HIGH();
+    LogPrintf("LCD frame end\n");
+}
+
+void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef* hspi)
+{
+    if (hspi == &hspi1)
+    {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        xSemaphoreGiveFromISR(spiDmaDoneSem, &xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    }
 }

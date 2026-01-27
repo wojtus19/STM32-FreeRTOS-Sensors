@@ -47,8 +47,8 @@
 typedef struct Font_t
 {
   const uint8_t *table;
-  uint16_t Width;
-  uint16_t Height;
+  uint16_t width;
+  uint16_t height;
 
 } Font_t;
 

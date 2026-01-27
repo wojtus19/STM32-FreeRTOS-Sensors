@@ -53,6 +53,7 @@ I2C_HandleTypeDef hi2c1;
 I2S_HandleTypeDef hi2s3;
 
 SPI_HandleTypeDef hspi1;
+DMA_HandleTypeDef hdma_spi1_tx;
 
 TIM_HandleTypeDef htim1;
 
@@ -61,6 +62,7 @@ DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
 TaskHandle_t logger_task_handle;
+TaskHandle_t LCD_screen_task_handle;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -95,6 +97,7 @@ int main(void)
     /* USER CODE BEGIN 1 */
 
     TaskHandle_t distance_measure_task_handle;
+
     TaskHandle_t init_task_handle;
 
     BaseType_t status;
@@ -131,22 +134,25 @@ int main(void)
 
     LoggerInit();
 
-    ScreenInit();
-    setPWM_PE9(150);
-    SetWindowColor(0, 0, LCD_WIDTH, LCD_HEIGHT, BROWN);
+    LCD_ScreenInit();
+    LCD_ChangeBrightness(150);
     bool_t found = I2C_Poll_Tof();
     if (found)
     {
-        DrawString(100, 120, "Found", &Font20, 0, GREEN, FALSE);
+        // LCD_DrawString(100, 120, "Found", &Font20, 0, GREEN);
     }
 
     Init_VL53L0X(&hi2c1, TRUE);
 
-    status = xTaskCreate(InitTask, "Task-2", 200, "", 2, &init_task_handle);
+    status = xTaskCreate(InitTask, "Init-Task", 200, "", 2, &init_task_handle);
 
     configASSERT(pdPASS == status);
 
-    status = xTaskCreate(DistanceMeasureTask, "Task-1", 200, "", 2, &distance_measure_task_handle);
+    status = xTaskCreate(DistanceMeasureTask, "Distance-Measure", 200, "", 2, &distance_measure_task_handle);
+
+    configASSERT(pdPASS == status);
+
+    status = xTaskCreate(LCDScreenTask, "LCD-Screen", 200, "", 3, &LCD_screen_task_handle);
 
     configASSERT(pdPASS == status);
 
@@ -426,11 +432,15 @@ static void MX_DMA_Init(void)
 
     /* DMA controller clock enable */
     __HAL_RCC_DMA1_CLK_ENABLE();
+    __HAL_RCC_DMA2_CLK_ENABLE();
 
     /* DMA interrupt init */
     /* DMA1_Stream6_IRQn interrupt configuration */
     HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+    /* DMA2_Stream3_IRQn interrupt configuration */
+    HAL_NVIC_SetPriority(DMA2_Stream3_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(DMA2_Stream3_IRQn);
 }
 
 /**
@@ -552,7 +562,7 @@ bool_t I2C_Poll_Tof(void)
 {
     while (HAL_I2C_IsDeviceReady(&hi2c1, 0x29 << 1, 1, 10) != HAL_OK)
     {
-        DrawString(20, 60, "X", &Font20, 0, RED, FALSE);
+        // LCD_DrawString(20, 60, "X", &Font20, 0, RED, FALSE);
     }
     return TRUE;
 }
@@ -560,7 +570,7 @@ bool_t I2C_Poll_Tof(void)
 static void DistanceMeasureTask(void* parameters)
 {
     /* 5000ms delay */
-    const TickType_t xDelay = 5000 / portTICK_PERIOD_MS;
+    const TickType_t xDelay = 3000 / portTICK_PERIOD_MS;
     uint16_t distance;
     char distanceStr[20];
     for (;;)
@@ -570,8 +580,8 @@ static void DistanceMeasureTask(void* parameters)
         distance = readRangeSingleMillimeters();
         LogPrintf("Distance: %d\n", distance);
         itoa(distance, distanceStr, 10);
-        SetWindowColor(0, 0, LCD_WIDTH, LCD_HEIGHT, BROWN);
-        DrawString(180, 120, distanceStr, &Font20, 0, GREEN, FALSE);
+        LCD_FillScreen(BLACK);
+        LCD_DrawString(80, 20, distanceStr, &Font20, GREEN, BLACK);
         vTaskDelay(xDelay);
     }
 }
@@ -579,11 +589,12 @@ static void DistanceMeasureTask(void* parameters)
 static void InitTask(void* parameters)
 {
     /* 300ms delay */
-    const TickType_t xDelay = 300 / portTICK_PERIOD_MS;
+    const TickType_t xDelay = 5000 / portTICK_PERIOD_MS;
     LogPrintf("Logger initialized at tick: %lu\n", xTaskGetTickCount());
     for (;;)
     {
         HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
+        LCD_DrawImage(shrek_img, 0, 0, LCD_WIDTH, LCD_HEIGHT);
         vTaskDelay(xDelay);
     }
 }
