@@ -25,6 +25,7 @@
 #include "DistanceSensor.h"
 #include "FreeRTOS.h"
 #include "LCD_Screen.h"
+#include "i2c_manager.h"
 #include "logger.h"
 #include "shrek.h"
 #include "task.h"
@@ -63,6 +64,7 @@ DMA_HandleTypeDef hdma_usart2_tx;
 /* USER CODE BEGIN PV */
 TaskHandle_t logger_task_handle;
 TaskHandle_t LCD_screen_task_handle;
+TaskHandle_t I2C_ManagerTaskHandle;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -136,15 +138,13 @@ int main(void)
 
     LCD_ScreenInit();
     LCD_ChangeBrightness(150);
-    bool_t found = I2C_Poll_Tof();
-    if (found)
-    {
-        // LCD_DrawString(100, 120, "Found", &Font20, 0, GREEN);
-    }
-
-    Init_VL53L0X(&hi2c1, TRUE);
+    I2C_ManagerInit(&hi2c1);
 
     status = xTaskCreate(InitTask, "Init-Task", 200, "", 2, &init_task_handle);
+
+    configASSERT(pdPASS == status);
+
+    status = xTaskCreate(I2C_ManagerTask, "I2C-Manager", 200, "", 4, &I2C_ManagerTaskHandle);
 
     configASSERT(pdPASS == status);
 
@@ -156,7 +156,7 @@ int main(void)
 
     configASSERT(pdPASS == status);
 
-    status = xTaskCreate(LoggerTask, "Logger", 512, NULL, 2, &logger_task_handle);
+    status = xTaskCreate(LoggerTask, "Logger", 512, NULL, 1, &logger_task_handle);
 
     configASSERT(pdPASS == status);
 
@@ -470,6 +470,9 @@ static void MX_GPIO_Init(void)
     HAL_GPIO_WritePin(OTG_FS_PowerSwitchOn_GPIO_Port, OTG_FS_PowerSwitchOn_Pin, GPIO_PIN_SET);
 
     /*Configure GPIO pin Output Level */
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
+
+    /*Configure GPIO pin Output Level */
     HAL_GPIO_WritePin(GPIOD, LD4_Pin | LD3_Pin | LD5_Pin | LD6_Pin | Audio_RST_Pin, GPIO_PIN_RESET);
 
     /*Configure GPIO pins : PE2 CS_I2C_SPI_Pin PE4 PE5
@@ -480,12 +483,12 @@ static void MX_GPIO_Init(void)
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-    /*Configure GPIO pin : OTG_FS_PowerSwitchOn_Pin */
-    GPIO_InitStruct.Pin   = OTG_FS_PowerSwitchOn_Pin;
+    /*Configure GPIO pins : OTG_FS_PowerSwitchOn_Pin PC1 */
+    GPIO_InitStruct.Pin   = OTG_FS_PowerSwitchOn_Pin | GPIO_PIN_1;
     GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull  = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(OTG_FS_PowerSwitchOn_GPIO_Port, &GPIO_InitStruct);
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
     /*Configure GPIO pin : PDM_OUT_Pin */
     GPIO_InitStruct.Pin       = PDM_OUT_Pin;
@@ -586,11 +589,12 @@ static void DistanceMeasureTask(void* parameters)
     }
 }
 
-static void InitTask(void* parameters)
+static void InitTask(void* parameter)
 {
-    /* 300ms delay */
+    vTaskDelay(pdMS_TO_TICKS(30));
+    Init_VL53L0X(TRUE); // Initialize Distance sensor
+    LogPrintf("[info][%lu] Sensors initialized\n", xTaskGetTickCount() * portTICK_PERIOD_MS);
     const TickType_t xDelay = 5000 / portTICK_PERIOD_MS;
-    LogPrintf("Logger initialized at tick: %lu\n", xTaskGetTickCount());
     for (;;)
     {
         HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
@@ -598,7 +602,6 @@ static void InitTask(void* parameters)
         vTaskDelay(xDelay);
     }
 }
-
 /* USER CODE END 4 */
 
 /**

@@ -178,32 +178,27 @@ void LCDScreenTask(void* argument)
     for (;;)
     {
         xQueueReceive(lcdQueue, &frame, portMAX_DELAY);
-        LogPrintf("ScreenTask Enter\n");
         switch (frame.type)
         {
         case LCD_CMD_FILL_SCREEN:
-            LogPrintf("LCD_CMD_FILL_SCREEN\n");
             SetWindow(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
             pixel_count = LCD_WIDTH * LCD_HEIGHT;
             FillScreenDMA(frame.data.fill_screen.color, pixel_count);
             break;
 
         case LCD_CMD_FILL_RECT:
-            LogPrintf("LCD_CMD_FILL_RECT\n");
             SetWindow(frame.data.fill_rect.xStart, frame.data.fill_rect.yStart, frame.data.fill_rect.xEnd - 1, frame.data.fill_rect.yEnd - 1);
             pixel_count = (frame.data.fill_rect.xEnd - frame.data.fill_rect.xStart) * (frame.data.fill_rect.yEnd - frame.data.fill_rect.yStart);
             FillScreenDMA(frame.data.fill_rect.color, pixel_count);
             break;
 
         case LCD_CMD_DRAW_IMAGE:
-            LogPrintf("LCD_CMD_DRAW_IMAGE\n");
             SetWindow(frame.data.image.xStart, frame.data.image.yStart, frame.data.image.xEnd - 1, frame.data.image.yEnd - 1);
             pixel_count = (frame.data.fill_rect.xEnd - frame.data.fill_rect.xStart) * (frame.data.fill_rect.yEnd - frame.data.fill_rect.yStart);
             FillImageDMA(frame.data.image.pixels, pixel_count);
             break;
 
         case LCD_CMD_DRAW_TEXT:
-            LogPrintf("LCD_CMD_DRAW_TEXT\n");
             DrawString(frame.data.text.xStart, frame.data.text.yStart, frame.data.text.text, frame.data.text.font, frame.data.text.bg, frame.data.text.color);
             break;
         }
@@ -366,8 +361,6 @@ static void FillImageDMA(const uint16_t* image, uint32_t pixel_count)
 {
     static uint16_t image_buf[DMA_COLOR_CHUNK_PIXELS];
 
-    LogPrintf("FillImageDMA enter\n");
-
     LCD_CS_LOW();
     LCD_DC_HIGH();
 
@@ -387,14 +380,11 @@ static void FillImageDMA(const uint16_t* image, uint32_t pixel_count)
         cpyIdx += pixels;
     }
     LCD_CS_HIGH();
-    LogPrintf("LCD frame end\n");
 }
 
 static void FillScreenDMA(uint16_t color, uint32_t pixel_count)
 {
     static uint16_t color_buf[DMA_COLOR_CHUNK_PIXELS];
-
-    LogPrintf("FillScreenDMA enter\n");
     for (uint32_t idx = 0; idx < DMA_COLOR_CHUNK_PIXELS; idx++)
     {
         color_buf[idx] = color;
@@ -415,7 +405,6 @@ static void FillScreenDMA(uint16_t color, uint32_t pixel_count)
         remaining -= pixels;
     }
     LCD_CS_HIGH();
-    LogPrintf("LCD frame end\n");
 }
 
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef* hspi)

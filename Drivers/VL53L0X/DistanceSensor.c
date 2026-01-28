@@ -17,6 +17,7 @@
 // VL53L0X datasheet.
 
 #include "DistanceSensor.h"
+#include "i2c_manager.h"
 #include "typedef.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -110,7 +111,6 @@ typedef enum regAddr_t
     ALGO_PHASECAL_CONFIG_TIMEOUT                = 0x30,
 } regAddr_t;
 
-
 typedef struct SequenceStepEnables_t
 {
     bool_t tcc;
@@ -138,7 +138,6 @@ static uint16_t timeout_start_ms;
 static uint8_t stop_variable; // read by init and used when starting measurement; is StopVariable field of VL53L0X_DevData_t structure in API
 static uint32_t measurement_timing_budget_us;
 static Status_t status = 0;
-static I2C_HandleTypeDef hi2c1;
 
 static uint8_t readReg(uint8_t reg);
 static uint16_t readReg16Bit(uint8_t reg);
@@ -162,26 +161,28 @@ static uint8_t getSpadInfo(uint8_t* count, bool_t* type_is_aperture);
 static void getSequenceStepEnables(SequenceStepEnables_t* enables);
 static void getSequenceStepTimeouts(SequenceStepEnables_t const* enables, SequenceStepTimeouts_t* timeouts);
 static uint8_t performSingleRefCalibration(uint8_t vhv_init_byte);
-// Initialize sensor using sequence based on VL53L0X_DataInit(),
-// VL53L0X_StaticInit(), and VL53L0X_PerformRefCalibration().
-// This function does not perform reference SPAD calibration
-// (VL53L0X_PerformRefSpadManagement()), since the API user manual says that it
-// is performed by ST on the bare modules; it seems like that should work well
-// enough unless a cover glass is added.
-// If io_2v8 (optional) is TRUE or not given, the sensor is configured for 2V8
-// mode.
+static void VL53L0X_HardReset(void);
 
-Status_t Init_VL53L0X(I2C_HandleTypeDef* p_i2c_handler, uint8_t b_long_range)
+Status_t Init_VL53L0X(uint8_t b_long_range)
 {
-    hi2c1 = *p_i2c_handler;
-    while (HAL_I2C_IsDeviceReady(&hi2c1, 0x29 << 1, 1, 10) != HAL_OK)
+    VL53L0X_HardReset();
+    while (I2C_Manager_IsDeviceReady(VL530L0X_ADDRESS) != I2C_STATUS_OK)
     {
-        HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_14); // Turn on the RED LED
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET); // Turn on the RED LED
     }
-    HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_14); // Turn on the RED LED
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET); // Turn on the RED LED
 
     status = STATUS_OK;
     return initSensor(b_long_range); // finally, initialize the magic numbers in the sensor
+}
+
+void VL53L0X_HardReset(void)
+{
+    HAL_GPIO_WritePin(VL53_XSHUT_GPIO_Port, VL53_XSHUT_Pin, GPIO_PIN_RESET);
+    HAL_Delay(10);
+
+    HAL_GPIO_WritePin(VL53_XSHUT_GPIO_Port, VL53_XSHUT_Pin, GPIO_PIN_SET);
+    HAL_Delay(10);
 }
 
 static uint8_t initSensor(uint8_t io_2v8)
@@ -219,10 +220,6 @@ static uint8_t initSensor(uint8_t io_2v8)
     setSignalRateLimit(0.25);
 
     writeReg(SYSTEM_SEQUENCE_CONFIG, 0xFF);
-
-    // VL53L0X_DataInit() end
-
-    // VL53L0X_StaticInit() begin
 
     uint8_t spad_count;
     uint8_t spad_type_is_aperture;
@@ -423,7 +420,7 @@ static uint8_t initSensor(uint8_t io_2v8)
 // Write an 8-bit register
 void writeReg(uint8_t reg, uint8_t value)
 {
-    if (HAL_OK == HAL_I2C_Mem_Write(&hi2c1, VL530L0X_ADDRESS, reg, 1, &value, 1, 1000))
+    if (I2C_STATUS_OK == I2C_Manager_Write(VL530L0X_ADDRESS, reg, &value, 1))
     {
         status = STATUS_OK;
     }
@@ -439,7 +436,7 @@ void writeReg16Bit(uint8_t reg, uint16_t value)
     uint8_t writeVal[2];
     writeVal[0] = (uint8_t)(value >> 8);
     writeVal[1] = (uint8_t)(value & 0xFF);
-    if (HAL_OK == HAL_I2C_Mem_Write(&hi2c1, VL530L0X_ADDRESS, reg, 1, writeVal, 1, 1000))
+    if (I2C_STATUS_OK == I2C_Manager_Write(VL530L0X_ADDRESS, reg, writeVal, 2))
     {
         status = STATUS_OK;
     }
@@ -457,7 +454,7 @@ void writeReg32Bit(uint8_t reg, uint32_t value)
     writeVal[1] = (uint8_t)(value >> 16);
     writeVal[2] = (uint8_t)(value >> 8);
     writeVal[3] = (uint8_t)(value & 0xFF);
-    if (HAL_OK == HAL_I2C_Mem_Write(&hi2c1, VL530L0X_ADDRESS, reg, 1, writeVal, 1, 1000))
+    if (I2C_STATUS_OK == I2C_Manager_Write(VL530L0X_ADDRESS, reg, writeVal, 4))
     {
         status = STATUS_OK;
     }
@@ -472,7 +469,7 @@ uint8_t readReg(uint8_t reg)
 {
     uint8_t value;
 
-    if (HAL_OK == HAL_I2C_Mem_Read(&hi2c1, VL530L0X_ADDRESS, reg, 1, &value, 1, 1000))
+    if (I2C_STATUS_OK == I2C_Manager_Read(VL530L0X_ADDRESS, reg, &value, 1))
     {
         status = STATUS_OK;
     }
@@ -489,7 +486,7 @@ uint16_t readReg16Bit(uint8_t reg)
 {
     uint8_t value[2];
 
-    if (HAL_OK == HAL_I2C_Mem_Read(&hi2c1, VL530L0X_ADDRESS, reg, 1, value, 2, 1000))
+    if (I2C_STATUS_OK == I2C_Manager_Read(VL530L0X_ADDRESS, reg, value, 2))
     {
         status = STATUS_OK;
     }
@@ -528,7 +525,7 @@ static uint32_t readReg32Bit(uint8_t reg)
 // starting at the given register
 static void writeMulti(uint8_t reg, uint8_t* src, uint8_t count)
 {
-    if (HAL_OK == HAL_I2C_Mem_Write(&hi2c1, VL530L0X_ADDRESS, reg, 1, src, count, 1000))
+    if (I2C_STATUS_OK == I2C_Manager_Write(VL530L0X_ADDRESS, reg, src, count))
     {
         status = STATUS_OK;
     }
@@ -542,7 +539,7 @@ static void writeMulti(uint8_t reg, uint8_t* src, uint8_t count)
 // register, into the given array
 static void readMulti(uint8_t reg, uint8_t* dst, uint8_t count)
 {
-    if (HAL_OK == HAL_I2C_Mem_Read(&hi2c1, VL530L0X_ADDRESS, reg, 1, dst, count, 1000))
+    if (I2C_STATUS_OK == I2C_Manager_Read(VL530L0X_ADDRESS, reg, dst, count))
     {
         status = STATUS_OK;
     }
