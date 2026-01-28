@@ -25,6 +25,7 @@
 #include "DistanceSensor.h"
 #include "FreeRTOS.h"
 #include "LCD_Screen.h"
+#include "event_groups.h"
 #include "i2c_manager.h"
 #include "logger.h"
 #include "shrek.h"
@@ -40,7 +41,12 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define PRIO_INIT 5
+#define PRIO_I2C 4
+#define PRIO_LCD 3
+#define PRIO_DISTANCE_SENSOR 2
+#define PRIO_LOGGER 1
+#define PRIO_DRAW_IMAGE 1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -65,6 +71,11 @@ DMA_HandleTypeDef hdma_usart2_tx;
 TaskHandle_t logger_task_handle;
 TaskHandle_t LCD_screen_task_handle;
 TaskHandle_t I2C_ManagerTaskHandle;
+TaskHandle_t distance_measure_task_handle;
+TaskHandle_t init_task_handle;
+TaskHandle_t draw_image_task_handle;
+
+EventGroupHandle_t i2c_event_group;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -81,7 +92,7 @@ void MX_USB_HOST_Process(void);
 /* USER CODE BEGIN PFP */
 static void DistanceMeasureTask(void* parameters);
 static void InitTask(void* parameters);
-bool_t I2C_Poll_Tof(void);
+static void DrawImageTask(void* parameter);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -97,13 +108,7 @@ int main(void)
 {
 
     /* USER CODE BEGIN 1 */
-
-    TaskHandle_t distance_measure_task_handle;
-
-    TaskHandle_t init_task_handle;
-
     BaseType_t status;
-
     /* USER CODE END 1 */
 
     /* MCU Configuration--------------------------------------------------------*/
@@ -134,29 +139,10 @@ int main(void)
     /* USER CODE BEGIN 2 */
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
 
-    LoggerInit();
+    i2c_event_group = xEventGroupCreate();
+    configASSERT(i2c_event_group);
 
-    LCD_ScreenInit();
-    LCD_ChangeBrightness(150);
-    I2C_ManagerInit(&hi2c1);
-
-    status = xTaskCreate(InitTask, "Init-Task", 200, "", 2, &init_task_handle);
-
-    configASSERT(pdPASS == status);
-
-    status = xTaskCreate(I2C_ManagerTask, "I2C-Manager", 200, "", 4, &I2C_ManagerTaskHandle);
-
-    configASSERT(pdPASS == status);
-
-    status = xTaskCreate(DistanceMeasureTask, "Distance-Measure", 200, "", 2, &distance_measure_task_handle);
-
-    configASSERT(pdPASS == status);
-
-    status = xTaskCreate(LCDScreenTask, "LCD-Screen", 200, "", 3, &LCD_screen_task_handle);
-
-    configASSERT(pdPASS == status);
-
-    status = xTaskCreate(LoggerTask, "Logger", 512, NULL, 1, &logger_task_handle);
+    status = xTaskCreate(InitTask, "Init-Task", 200, "", PRIO_INIT, &init_task_handle);
 
     configASSERT(pdPASS == status);
 
@@ -561,14 +547,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-bool_t I2C_Poll_Tof(void)
-{
-    while (HAL_I2C_IsDeviceReady(&hi2c1, 0x29 << 1, 1, 10) != HAL_OK)
-    {
-        // LCD_DrawString(20, 60, "X", &Font20, 0, RED, FALSE);
-    }
-    return TRUE;
-}
 
 static void DistanceMeasureTask(void* parameters)
 {
@@ -583,6 +561,7 @@ static void DistanceMeasureTask(void* parameters)
         distance = readRangeSingleMillimeters();
         LogPrintf("Distance: %d\n", distance);
         itoa(distance, distanceStr, 10);
+
         LCD_FillScreen(BLACK);
         LCD_DrawString(80, 20, distanceStr, &Font20, GREEN, BLACK);
         vTaskDelay(xDelay);
@@ -591,9 +570,40 @@ static void DistanceMeasureTask(void* parameters)
 
 static void InitTask(void* parameter)
 {
-    vTaskDelay(pdMS_TO_TICKS(30));
-    Init_VL53L0X(TRUE); // Initialize Distance sensor
+    BaseType_t status;
+
+    I2C_ManagerInit(&hi2c1);
+
+    status = xTaskCreate(I2C_ManagerTask, "I2C-Manager", 200, "", PRIO_I2C, &I2C_ManagerTaskHandle);
+    configASSERT(pdPASS == status);
+
+    LoggerInit();
+
+    status = Init_VL53L0X(TRUE); // Initialize Distance sensor
+    configASSERT(pdPASS == status);
+
+    LCD_ScreenInit();
+    LCD_ChangeBrightness(150);
+
     LogPrintf("[info][%lu] Sensors initialized\n", xTaskGetTickCount() * portTICK_PERIOD_MS);
+
+    status = xTaskCreate(DistanceMeasureTask, "Distance-Measure", 200, "", PRIO_DISTANCE_SENSOR, &distance_measure_task_handle);
+    configASSERT(pdPASS == status);
+
+    status = xTaskCreate(LCDScreenTask, "LCD-Screen", 200, "", PRIO_LCD, &LCD_screen_task_handle);
+    configASSERT(pdPASS == status);
+
+    status = xTaskCreate(LoggerTask, "Logger", 512, NULL, PRIO_LOGGER, &logger_task_handle);
+    configASSERT(pdPASS == status);
+
+    status = xTaskCreate(DrawImageTask, "Draw-Image", 512, NULL, PRIO_DRAW_IMAGE, &draw_image_task_handle);
+    configASSERT(pdPASS == status);
+
+    vTaskDelete(NULL);
+}
+
+static void DrawImageTask(void* parameter)
+{
     const TickType_t xDelay = 5000 / portTICK_PERIOD_MS;
     for (;;)
     {
