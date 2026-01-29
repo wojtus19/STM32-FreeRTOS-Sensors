@@ -22,14 +22,16 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "DistanceSensor.h"
+#include "BME280/bme.h"
 #include "FreeRTOS.h"
-#include "LCD_Screen.h"
+#include "LCD_Screen/LCD_Screen.h"
+#include "VL53L0X/DistanceSensor.h"
 #include "event_groups.h"
 #include "i2c_manager.h"
 #include "logger.h"
 #include "shrek.h"
 #include "task.h"
+#include "utils.h"
 #include <stdlib.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -45,6 +47,7 @@
 #define PRIO_I2C 4
 #define PRIO_LCD 3
 #define PRIO_DISTANCE_SENSOR 2
+#define PRIO_BME 2
 #define PRIO_LOGGER 1
 #define PRIO_DRAW_IMAGE 1
 /* USER CODE END PD */
@@ -72,6 +75,7 @@ TaskHandle_t logger_task_handle;
 TaskHandle_t LCD_screen_task_handle;
 TaskHandle_t I2C_ManagerTaskHandle;
 TaskHandle_t distance_measure_task_handle;
+TaskHandle_t bme_task_handle;
 TaskHandle_t init_task_handle;
 TaskHandle_t draw_image_task_handle;
 
@@ -91,6 +95,7 @@ void MX_USB_HOST_Process(void);
 
 /* USER CODE BEGIN PFP */
 static void DistanceMeasureTask(void* parameters);
+static void BMETask(void* parameters);
 static void InitTask(void* parameters);
 static void DrawImageTask(void* parameter);
 /* USER CODE END PFP */
@@ -562,8 +567,40 @@ static void DistanceMeasureTask(void* parameters)
         LogPrintf("Distance: %d\n", distance);
         itoa(distance, distanceStr, 10);
 
-        LCD_FillScreen(BLACK);
-        LCD_DrawString(80, 20, distanceStr, &Font20, GREEN, BLACK);
+        LCD_FillRect(0, 0, LCD_WIDTH, 60, BLACK);
+        LCD_DrawString(10, 20, distanceStr, &Font20, GREEN, BLACK);
+        vTaskDelay(xDelay);
+    }
+}
+
+static void BMETask(void* parameters)
+{
+    /* 5000ms delay */
+    const TickType_t xDelay = 2000 / portTICK_PERIOD_MS;
+    BME280_Data_t bme_data;
+    //_Accum temperature, pressure, humidity;
+    char tempStr[8], pressureStr[8], humidityStr[8];
+    for (;;)
+    {
+        //bme_data             = BME280_ReadData();
+        bme_data.temperature = BME280_ReadTemperature();
+        bme_data.pressure    = BME280_ReadPressure();
+        bme_data.humidity    = BME280_ReadHumidity();
+
+        LCD_FillRect(0, 60, LCD_WIDTH, LCD_HEIGHT, BLACK);
+
+        snprintf(tempStr, sizeof(tempStr), "%.2f", bme_data.temperature);
+        //AccumToString(bme_data.temperature, tempStr, 2);
+        LCD_DrawString(10, 60, tempStr, &Font20, CYAN, BLACK);
+
+        snprintf(pressureStr, sizeof(pressureStr), "%.2f", bme_data.pressure);
+        //AccumToString(bme_data.pressure, pressureStr, 2);
+        LCD_DrawString(10, 100, pressureStr, &Font20, MAGENTA, BLACK);
+
+        snprintf(humidityStr, sizeof(humidityStr), "%.2f", bme_data.humidity);
+        //AccumToString(bme_data.humidity, humidityStr, 2);
+        LCD_DrawString(10, 140, humidityStr, &Font20, LGRAYBLUE, BLACK);
+
         vTaskDelay(xDelay);
     }
 }
@@ -582,12 +619,18 @@ static void InitTask(void* parameter)
     status = Init_VL53L0X(TRUE); // Initialize Distance sensor
     configASSERT(pdPASS == status);
 
+    BME280_Init();
     LCD_ScreenInit();
     LCD_ChangeBrightness(150);
+    LCD_FillScreen(BLACK);
+    // LCD_DrawImage(shrek_img, 0, 0, LCD_WIDTH, LCD_HEIGHT);
 
     LogPrintf("[info][%lu] Sensors initialized\n", xTaskGetTickCount() * portTICK_PERIOD_MS);
 
     status = xTaskCreate(DistanceMeasureTask, "Distance-Measure", 200, "", PRIO_DISTANCE_SENSOR, &distance_measure_task_handle);
+    configASSERT(pdPASS == status);
+
+    status = xTaskCreate(BMETask, "BME", 768, "", PRIO_BME, &bme_task_handle);
     configASSERT(pdPASS == status);
 
     status = xTaskCreate(LCDScreenTask, "LCD-Screen", 200, "", PRIO_LCD, &LCD_screen_task_handle);
@@ -596,8 +639,8 @@ static void InitTask(void* parameter)
     status = xTaskCreate(LoggerTask, "Logger", 512, NULL, PRIO_LOGGER, &logger_task_handle);
     configASSERT(pdPASS == status);
 
-    status = xTaskCreate(DrawImageTask, "Draw-Image", 512, NULL, PRIO_DRAW_IMAGE, &draw_image_task_handle);
-    configASSERT(pdPASS == status);
+    // status = xTaskCreate(DrawImageTask, "Draw-Image", 512, NULL, PRIO_DRAW_IMAGE, &draw_image_task_handle);
+    // configASSERT(pdPASS == status);
 
     vTaskDelete(NULL);
 }

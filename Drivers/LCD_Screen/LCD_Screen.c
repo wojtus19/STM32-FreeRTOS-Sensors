@@ -14,7 +14,6 @@
 #include "LCD_Screen.h"
 #include "FreeRTOS.h"
 #include "logger.h"
-#include "memory_utils.h"
 #include "semphr.h"
 #include "stream_buffer.h"
 #include <string.h>
