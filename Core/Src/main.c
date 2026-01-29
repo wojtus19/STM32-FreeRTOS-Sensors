@@ -22,6 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "BH1750/LightSensor.h"
 #include "BME280/bme.h"
 #include "FreeRTOS.h"
 #include "LCD_Screen/LCD_Screen.h"
@@ -77,7 +78,8 @@ TaskHandle_t I2C_ManagerTaskHandle;
 TaskHandle_t distance_measure_task_handle;
 TaskHandle_t bme_task_handle;
 TaskHandle_t init_task_handle;
-TaskHandle_t draw_image_task_handle;
+// TaskHandle_t draw_image_task_handle;
+TaskHandle_t light_sensor_task_handle;
 
 EventGroupHandle_t i2c_event_group;
 /* USER CODE END PV */
@@ -97,7 +99,7 @@ void MX_USB_HOST_Process(void);
 static void DistanceMeasureTask(void* parameters);
 static void BMETask(void* parameters);
 static void InitTask(void* parameters);
-static void DrawImageTask(void* parameter);
+// static void DrawImageTask(void* parameter);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -582,24 +584,43 @@ static void BMETask(void* parameters)
     char tempStr[8], pressureStr[8], humidityStr[8];
     for (;;)
     {
-        //bme_data             = BME280_ReadData();
+        // bme_data             = BME280_ReadData();
         bme_data.temperature = BME280_ReadTemperature();
         bme_data.pressure    = BME280_ReadPressure();
         bme_data.humidity    = BME280_ReadHumidity();
 
-        LCD_FillRect(0, 60, LCD_WIDTH, LCD_HEIGHT, BLACK);
+        LCD_FillRect(0, 60, LCD_WIDTH, 180, BLACK);
 
         snprintf(tempStr, sizeof(tempStr), "%.2f", bme_data.temperature);
-        //AccumToString(bme_data.temperature, tempStr, 2);
+        // AccumToString(bme_data.temperature, tempStr, 2);
         LCD_DrawString(10, 60, tempStr, &Font20, CYAN, BLACK);
 
         snprintf(pressureStr, sizeof(pressureStr), "%.2f", bme_data.pressure);
-        //AccumToString(bme_data.pressure, pressureStr, 2);
+        // AccumToString(bme_data.pressure, pressureStr, 2);
         LCD_DrawString(10, 100, pressureStr, &Font20, MAGENTA, BLACK);
 
         snprintf(humidityStr, sizeof(humidityStr), "%.2f", bme_data.humidity);
-        //AccumToString(bme_data.humidity, humidityStr, 2);
+        // AccumToString(bme_data.humidity, humidityStr, 2);
         LCD_DrawString(10, 140, humidityStr, &Font20, LGRAYBLUE, BLACK);
+
+        vTaskDelay(xDelay);
+    }
+}
+
+static void LightSensorTask(void* parameters)
+{
+    /* 5000ms delay */
+    const TickType_t xDelay = 2000 / portTICK_PERIOD_MS;
+    float lux               = 0u;
+    char luxStr[8]          = { 0 };
+    for (;;)
+    {
+
+        lux = BH1750_ReadLux();
+        snprintf(luxStr, sizeof(luxStr), "%.2f", lux);
+
+        LCD_FillRect(0, 180, LCD_WIDTH, LCD_HEIGHT, BLACK);
+        LCD_DrawString(10, 180, luxStr, &Font20, YELLOW, BLACK);
 
         vTaskDelay(xDelay);
     }
@@ -620,6 +641,8 @@ static void InitTask(void* parameter)
     configASSERT(pdPASS == status);
 
     BME280_Init();
+    BH1750_Init();
+
     LCD_ScreenInit();
     LCD_ChangeBrightness(150);
     LCD_FillScreen(BLACK);
@@ -639,22 +662,25 @@ static void InitTask(void* parameter)
     status = xTaskCreate(LoggerTask, "Logger", 512, NULL, PRIO_LOGGER, &logger_task_handle);
     configASSERT(pdPASS == status);
 
+    status = xTaskCreate(LightSensorTask, "Light-Sensor", 512, NULL, 3, &light_sensor_task_handle);
+    configASSERT(pdPASS == status);
+
     // status = xTaskCreate(DrawImageTask, "Draw-Image", 512, NULL, PRIO_DRAW_IMAGE, &draw_image_task_handle);
     // configASSERT(pdPASS == status);
 
     vTaskDelete(NULL);
 }
 
-static void DrawImageTask(void* parameter)
-{
-    const TickType_t xDelay = 5000 / portTICK_PERIOD_MS;
-    for (;;)
-    {
-        HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
-        LCD_DrawImage(shrek_img, 0, 0, LCD_WIDTH, LCD_HEIGHT);
-        vTaskDelay(xDelay);
-    }
-}
+// static void DrawImageTask(void* parameter)
+//{
+//     const TickType_t xDelay = 5000 / portTICK_PERIOD_MS;
+//     for (;;)
+//     {
+//         HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
+//         LCD_DrawImage(shrek_img, 0, 0, LCD_WIDTH, LCD_HEIGHT);
+//         vTaskDelay(xDelay);
+//     }
+// }
 /* USER CODE END 4 */
 
 /**
