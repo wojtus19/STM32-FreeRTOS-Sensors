@@ -640,7 +640,8 @@ static void InitTask(void* parameter)
     status = Init_VL53L0X(TRUE); // Initialize Distance sensor
     configASSERT(pdPASS == status);
 
-    BME280_Init();
+    status = BME280_Init();
+    configASSERT(STATUS_OK == status);
     BH1750_Init();
 
     LCD_ScreenInit();

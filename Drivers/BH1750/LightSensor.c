@@ -28,7 +28,7 @@ static void WriteCommand(uint8_t command)
     else
     {
         LogPrintf("[error][BH1750] Writing command failed\n");
-        status = I2C_ERROR;
+        status = STATUS_I2C_ERROR;
     }
 }
 
@@ -44,7 +44,7 @@ static uint16_t ReadData()
     else
     {
         LogPrintf("[error][BH1750] Reading Data\n");
-        status = I2C_ERROR;
+        status = STATUS_I2C_ERROR;
     }
 
     return ((uint16_t)bytes[0] << 8) | bytes[1];
@@ -54,7 +54,7 @@ void BH1750_Init()
 {
     if (I2C_STATUS_OK != I2C_Manager_IsDeviceReady(BH1750_ADDRESS))
     {
-        status = TIMEOUT_ERROR;
+        status = STATUS_TIMEOUT_ERROR;
         LogPrintf("[error][BH1750] Initializing sensor failed\n");
         return;
     }

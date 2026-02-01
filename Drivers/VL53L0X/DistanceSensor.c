@@ -426,7 +426,7 @@ void writeReg(uint8_t reg, uint8_t value)
     }
     else
     {
-        status = I2C_ERROR;
+        status = STATUS_I2C_ERROR;
     }
 }
 
@@ -442,7 +442,7 @@ void writeReg16Bit(uint8_t reg, uint16_t value)
     }
     else
     {
-        status = I2C_ERROR;
+        status = STATUS_I2C_ERROR;
     }
 }
 
@@ -460,7 +460,7 @@ void writeReg32Bit(uint8_t reg, uint32_t value)
     }
     else
     {
-        status = I2C_ERROR;
+        status = STATUS_I2C_ERROR;
     }
 }
 
@@ -475,7 +475,7 @@ uint8_t readReg(uint8_t reg)
     }
     else
     {
-        status = I2C_ERROR;
+        status = STATUS_I2C_ERROR;
     }
 
     return value;
@@ -492,7 +492,7 @@ uint16_t readReg16Bit(uint8_t reg)
     }
     else
     {
-        status = I2C_ERROR;
+        status = STATUS_I2C_ERROR;
     }
 
     uint16_t returnVal = ((value[0] << 8) + value[1]);
@@ -512,7 +512,7 @@ static uint32_t readReg32Bit(uint8_t reg)
     }
     else
     {
-        status = I2C_ERROR;
+        status = STATUS_I2C_ERROR;
     }
 
     uint32_t returnVal = ((value[0] << 24) + (value[1] << 16) + (value[2] << 8) + value[3]);
@@ -531,7 +531,7 @@ static void writeMulti(uint8_t reg, uint8_t* src, uint8_t count)
     }
     else
     {
-        status = I2C_ERROR;
+        status = STATUS_I2C_ERROR;
     }
 }
 
@@ -545,7 +545,7 @@ static void readMulti(uint8_t reg, uint8_t* dst, uint8_t count)
     }
     else
     {
-        status = I2C_ERROR;
+        status = STATUS_I2C_ERROR;
     }
 }
 

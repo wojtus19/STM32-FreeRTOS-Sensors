@@ -15,9 +15,9 @@
 #include "utils.h"
 
 /*! @name Bit shift macros */
-#define BME280_12_BIT_SHIFT UINT8_C(12)
-#define BME280_8_BIT_SHIFT UINT8_C(8)
-#define BME280_4_BIT_SHIFT UINT8_C(4)
+#define BME280_12_BIT_SHIFT 12
+#define BME280_8_BIT_SHIFT 8
+#define BME280_4_BIT_SHIFT 4
 
 /*! @name Macro to combine two 8 bit data's to form a 16 bit data */
 #define BME280_CONCAT_BYTES(msb, lsb) (((uint16_t)msb << 8) | (uint16_t)lsb)
@@ -30,7 +30,8 @@
 #define BME280_CTRL_HUMIDITY_REG 0xF2 // Ctrl Humidity Reg
 #define BME280_STAT_REG 0xF3          // Status Reg
 #define BME280_REG_PWR_CTRL 0xF4      // Ctrl Measure Reg
-#define BME280_CONFIG_REG 0xF5        // Configuration Reg
+#define BME280_REG_CTRL_MEAS 0xF4
+#define BME280_CONFIG_REG 0xF5 // Configuration Reg
 
 #define BME280_PRESSURE_MSB_REG 0xF7    // Pressure MSB
 #define BME280_TEMPERATURE_MSB_REG 0xFA // Temperature MSB
@@ -43,6 +44,36 @@
 #define BME280_REG_HUMIDITY_CALIB_DATA 0xE1
 #define BME280_LEN_HUMIDITY_CALIB_DATA 7
 
+/*! @name Macro to SET and GET BITS of a register */
+#define BME280_SET_BITS(reg_data, bitname, data) \
+    ((reg_data & ~(bitname##_MSK)) |             \
+     ((data << bitname##_POS) & bitname##_MSK))
+
+#define BME280_SET_BITS_POS_0(reg_data, bitname, data) \
+    ((reg_data & ~(bitname##_MSK)) |                   \
+     (data & bitname##_MSK))
+
+#define BME280_GET_BITS(reg_data, bitname) ((reg_data & (bitname##_MSK)) >> \
+                                            (bitname##_POS))
+#define BME280_GET_BITS_POS_0(reg_data, bitname) (reg_data & (bitname##_MSK))
+
+#define BME280_CTRL_HUM_MSK 0x07
+#define BME280_CTRL_HUM_POS 0x00
+
+#define BME280_CTRL_PRESS_MSK 0x1C
+#define BME280_CTRL_PRESS_POS 0x02
+
+#define BME280_CTRL_TEMP_MSK 0xE0
+#define BME280_CTRL_TEMP_POS 0x05
+
+#define BME280_STANDBY_MSK 0xE0
+#define BME280_STANDBY_POS 0x05
+
+#define BME280_FILTER_MSK 0x1C
+#define BME280_FILTER_POS 0x02
+
+#define BME280_SENSOR_MODE_MSK 0x03
+#define BME280_SENSOR_MODE_POS 0x00
 typedef struct
 {
     uint8_t temperatureOversampling;
@@ -85,67 +116,73 @@ typedef struct BME280_UncompData_t
 } BME280_UncompData_t;
 
 static BME280_CalibrationData_t calibration;
-static Status_t status = STATUS_OK;
 
-static uint8_t ReadRegister(unsigned char reg);
-static void ReadMulti(unsigned char addr, uint8_t* dst, uint32_t size);
-static void WriteRegister(unsigned char reg, unsigned char data);
+static Status_t ReadRegister(uint8_t reg, uint8_t* buffer);
+static Status_t ReadMulti(uint8_t addr, uint8_t* dst, uint32_t size);
+static Status_t WriteRegister(uint8_t reg, uint8_t data);
 static float CompensateHumidity(const BME280_UncompData_t* uncomp_data);
 static float CompensatePressure(const BME280_UncompData_t* uncomp_data);
 static float CompensateTemperature(const BME280_UncompData_t* uncomp_data);
 static void ParseSensorData(const uint8_t* reg_data, BME280_UncompData_t* uncomp_data);
-static void GetHumidityCalibrationData();
-static void GetTemperatureAndPressureCalibrationData();
-static void SetMode(unsigned char mode);
+static Status_t GetHumidityCalibrationData();
+static Status_t GetTemperatureAndPressureCalibrationData();
+static Status_t SetMode(uint8_t mode);
+static Status_t SetStandby(StandbyFactor_t timeSetting);
+static Status_t SetFilter(FilterCoeff_t filterSetting);
+static Status_t SetPressureOversamplingSettings(OversamplingFactor_t overSampleAmount);
+static Status_t SetHumidityOversamplingSettings(OversamplingFactor_t overSampleAmount);
+static Status_t SetTemperatureOversamplingSettings(OversamplingFactor_t overSampleAmount);
+static bool_t AreSettingsValid(BME280_Settings_t settings);
 
-static uint8_t ReadRegister(unsigned char reg)
+static Status_t ReadRegister(uint8_t reg, uint8_t* buffer)
 {
-    uint8_t buffer;
-
-    if (I2C_STATUS_OK == I2C_Manager_Read(BME280_ADDRESS, reg, &buffer, 1))
+    if (I2C_STATUS_OK == I2C_Manager_Read(BME280_ADDRESS, reg, buffer, 1))
     {
-        status = STATUS_OK;
+        return STATUS_OK;
     }
     else
     {
-        status = I2C_ERROR;
+        LogPrintf("[error][BME280] ReadRegister failed\n");
+        return STATUS_I2C_ERROR;
     }
-
-    return buffer;
 }
 
-static void ReadMulti(unsigned char addr, uint8_t* dst, uint32_t size)
+static Status_t ReadMulti(uint8_t addr, uint8_t* dst, uint32_t size)
 {
     if (I2C_STATUS_OK == I2C_Manager_Read(BME280_ADDRESS, addr, dst, size))
     {
-        status = STATUS_OK;
+        return STATUS_OK;
     }
     else
     {
-        status = I2C_ERROR;
+        LogPrintf("[error][BME280] ReadMulti failed\n");
+        return STATUS_I2C_ERROR;
     }
 }
 
-static void WriteRegister(unsigned char reg, unsigned char data)
+static Status_t WriteRegister(uint8_t reg, uint8_t data)
 {
     if (I2C_STATUS_OK == I2C_Manager_Write(BME280_ADDRESS, reg, &data, 1))
     {
-        status = STATUS_OK;
+        return STATUS_OK;
     }
     else
     {
-        status = I2C_ERROR;
+        LogPrintf("[error][BME280] WriteRegister failed\n");
+        return STATUS_I2C_ERROR;
     }
 }
 
-static void GetTemperatureAndPressureCalibrationData()
+static Status_t GetTemperatureAndPressureCalibrationData()
 {
     uint8_t reg_data[BME280_LEN_TEMP_PRESS_CALIB_DATA] = { 0 };
 
-    ReadMulti(BME280_REG_TEMP_PRESS_CALIB_DATA, reg_data, BME280_LEN_TEMP_PRESS_CALIB_DATA);
+    Status_t status = STATUS_OK;
+    status          = ReadMulti(BME280_REG_TEMP_PRESS_CALIB_DATA, reg_data, BME280_LEN_TEMP_PRESS_CALIB_DATA);
     if (STATUS_OK != status)
     {
         LogPrintf("[error][BME280] Temperature and pressure calibration data reading failed\n");
+        return status;
     }
 
     calibration.dig_t1 = BME280_CONCAT_BYTES(reg_data[1], reg_data[0]);
@@ -160,16 +197,21 @@ static void GetTemperatureAndPressureCalibrationData()
     calibration.dig_p7 = (int16_t)BME280_CONCAT_BYTES(reg_data[19], reg_data[18]);
     calibration.dig_p8 = (int16_t)BME280_CONCAT_BYTES(reg_data[21], reg_data[20]);
     calibration.dig_p9 = (int16_t)BME280_CONCAT_BYTES(reg_data[23], reg_data[22]);
+    calibration.dig_h1 = reg_data[25];
+
+    return status;
 }
 
-static void GetHumidityCalibrationData()
+static Status_t GetHumidityCalibrationData()
 {
     uint8_t reg_data[BME280_LEN_HUMIDITY_CALIB_DATA] = { 0 };
 
-    ReadMulti(BME280_REG_HUMIDITY_CALIB_DATA, reg_data, BME280_LEN_HUMIDITY_CALIB_DATA);
+    Status_t status = STATUS_OK;
+    status          = ReadMulti(BME280_REG_HUMIDITY_CALIB_DATA, reg_data, BME280_LEN_HUMIDITY_CALIB_DATA);
     if (STATUS_OK != status)
     {
         LogPrintf("[error][BME280] Humidity calibration data reading failed\n");
+        return status;
     }
 
     int16_t dig_h4_lsb;
@@ -186,36 +228,190 @@ static void GetHumidityCalibrationData()
     dig_h5_lsb         = (int16_t)(reg_data[4] >> 4);
     calibration.dig_h5 = dig_h5_msb | dig_h5_lsb;
     calibration.dig_h6 = (int8_t)reg_data[6];
+
+    return status;
 }
 
-void BME280_Init()
+static Status_t SetStandby(StandbyFactor_t timeSetting)
+{
+    Status_t status = STATUS_OK;
+    uint8_t regData = 0u;
+    status          = ReadRegister(BME280_CONFIG_REG, &regData);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+    regData = BME280_SET_BITS(regData, BME280_STANDBY, timeSetting);
+    status  = WriteRegister(BME280_CONFIG_REG, regData);
+    return status;
+}
+
+static Status_t SetFilter(FilterCoeff_t filterSetting)
+{
+    Status_t status = STATUS_OK;
+    uint8_t regData = 0u;
+    status          = ReadRegister(BME280_CONFIG_REG, &regData);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+
+    regData = BME280_SET_BITS(regData, BME280_FILTER, filterSetting);
+    status  = WriteRegister(BME280_CONFIG_REG, regData);
+    return status;
+}
+
+static Status_t SetPressureOversamplingSettings(OversamplingFactor_t overSampleAmount)
+{
+    Status_t status = STATUS_OK;
+    uint8_t regData = 0u;
+    status          = ReadRegister(BME280_REG_CTRL_MEAS, &regData);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+
+    regData = BME280_SET_BITS(regData, BME280_CTRL_PRESS, overSampleAmount);
+    status  = WriteRegister(BME280_REG_CTRL_MEAS, regData);
+    return status;
+}
+
+static Status_t SetHumidityOversamplingSettings(OversamplingFactor_t overSampleAmount)
+{
+    uint8_t ctrlHum = overSampleAmount & BME280_CTRL_HUM_MSK;
+    Status_t status = STATUS_OK;
+    status          = WriteRegister(BME280_CTRL_HUMIDITY_REG, ctrlHum);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+
+    uint8_t ctrlMeas = 0u;
+    status           = ReadRegister(BME280_REG_CTRL_MEAS, &ctrlMeas);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+
+    status = WriteRegister(BME280_REG_CTRL_MEAS, ctrlMeas);
+    return status;
+}
+
+static Status_t SetTemperatureOversamplingSettings(OversamplingFactor_t overSampleAmount)
+{
+    Status_t status = STATUS_OK;
+    uint8_t regData = 0u;
+    status          = ReadRegister(BME280_REG_CTRL_MEAS, &regData);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+
+    regData = BME280_SET_BITS(regData, BME280_CTRL_TEMP, overSampleAmount);
+    status  = WriteRegister(BME280_REG_CTRL_MEAS, regData);
+    return status;
+}
+
+Status_t BME280_Init()
 {
 
+    Status_t status = STATUS_OK;
     if (I2C_STATUS_OK != I2C_Manager_IsDeviceReady(BME280_ADDRESS))
     {
-        status = TIMEOUT_ERROR;
         LogPrintf("[error][BME280] Initializing sensor failed\n");
-        return;
+        return STATUS_TIMEOUT_ERROR;
     }
 
-    GetTemperatureAndPressureCalibrationData();
-    GetHumidityCalibrationData();
+    BME280_Settings_t settings;
+    settings.pressureOversampling    = BME280_OVERSAMPLING_1X;
+    settings.temperatureOversampling = BME280_OVERSAMPLING_1X;
+    settings.humidityOversampling    = BME280_OVERSAMPLING_1X;
+    settings.filter                  = BME280_FILTER_COEFF_2;
+    settings.standbyTime             = BME280_STANDBY_TIME_0_5_MS;
 
-    SetMode(MODE_NORMAL);
+    status = GetTemperatureAndPressureCalibrationData();
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+    status = GetHumidityCalibrationData();
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+    status = BME280_SetSettings(settings);
+    return status;
 }
 
-static void SetMode(unsigned char mode)
+static bool_t AreSettingsValid(BME280_Settings_t settings)
 {
-    if (mode > MODE_NORMAL)
-        mode = 0; // Error check. Default to sleep mode
-
-    uint8_t controlData = ReadRegister(BME280_REG_PWR_CTRL);
-    if (STATUS_OK == status)
+    if (settings.filter >= BME280_FILTER_COEFF_COUNT ||
+        settings.standbyTime >= BME280_STANDBY_TIME_COUNT ||
+        settings.temperatureOversampling >= BME280_OVERSAMPLING_COUNT ||
+        settings.humidityOversampling >= BME280_OVERSAMPLING_COUNT ||
+        settings.pressureOversampling >= BME280_OVERSAMPLING_COUNT)
     {
-        controlData &= ~((1 << 1) | (1 << 0)); // Clear the mode[1:0] bits
-        controlData |= mode;                   // Set
-        WriteRegister(BME280_REG_PWR_CTRL, controlData);
+        return FALSE;
     }
+    return TRUE;
+}
+
+Status_t BME280_SetSettings(BME280_Settings_t settings)
+{
+    Status_t status = STATUS_OK;
+    if (FALSE == AreSettingsValid(settings))
+    {
+        status = STATUS_INVALID_PARAMS;
+        return status;
+    }
+    status = SetMode(MODE_SLEEP);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+    status = SetFilter(settings.filter);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+    status = SetStandby(settings.standbyTime);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+    status = SetHumidityOversamplingSettings(settings.humidityOversampling);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+    status = SetPressureOversamplingSettings(settings.pressureOversampling);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+    status = SetTemperatureOversamplingSettings(settings.temperatureOversampling);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+    status = SetMode(MODE_NORMAL);
+    return status;
+}
+
+static Status_t SetMode(uint8_t mode)
+{
+
+    uint8_t sensorModeRegVal = 0u;
+    Status_t status          = STATUS_OK;
+
+    status = ReadRegister(BME280_REG_PWR_CTRL, &sensorModeRegVal);
+    if (STATUS_OK != status)
+    {
+        return status;
+    }
+    sensorModeRegVal = BME280_SET_BITS_POS_0(sensorModeRegVal, BME280_SENSOR_MODE, mode);
+    status           = WriteRegister(BME280_REG_PWR_CTRL, sensorModeRegVal);
+    return status;
 }
 
 static float CompensateTemperature(const BME280_UncompData_t* uncomp_data)
@@ -354,6 +550,7 @@ BME280_Data_t BME280_ReadData()
     if (I2C_STATUS_OK != I2C_Manager_Read(BME280_ADDRESS, BME280_DATA_REG, regData, 8))
     {
         LogPrintf("[error][BME280] Error reading sensor data\n");
+        return compData; // return all zeros
     }
 
     ParseSensorData(regData, &uncompData);
