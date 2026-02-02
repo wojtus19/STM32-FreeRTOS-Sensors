@@ -12,9 +12,10 @@
 #include "typedef.h"
 #include <stdint.h>
 
-#define BH1750_ADDRESS 0x23 << 1
+#define BH1750_ADDRESS (0x23 << 1)
 
-void BH1750_Init();
-float BH1750_ReadLux();
+Status_t BH1750_Init();
+Status_t BH1750_ReadLux(float* lux);
+Status_t BH1750_Deinit();
 
 #endif /* BH1750_LIGHTSENSOR_H_ */

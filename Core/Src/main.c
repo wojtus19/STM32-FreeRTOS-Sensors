@@ -614,14 +614,18 @@ static void LightSensorTask(void* parameters)
     const TickType_t xDelay = 2000 / portTICK_PERIOD_MS;
     float lux               = 0u;
     char luxStr[8]          = { 0 };
+    Status_t status         = STATUS_OK;
     for (;;)
     {
 
-        lux = BH1750_ReadLux();
-        snprintf(luxStr, sizeof(luxStr), "%.2f", lux);
+        status = BH1750_ReadLux(&lux);
+        if (STATUS_OK == status)
+        {
+            snprintf(luxStr, sizeof(luxStr), "%.2f", lux);
 
-        LCD_FillRect(0, 180, LCD_WIDTH, LCD_HEIGHT, BLACK);
-        LCD_DrawString(10, 180, luxStr, &Font20, YELLOW, BLACK);
+            LCD_FillRect(0, 180, LCD_WIDTH, LCD_HEIGHT, BLACK);
+            LCD_DrawString(10, 180, luxStr, &Font20, YELLOW, BLACK);
+        }
 
         vTaskDelay(xDelay);
     }
@@ -643,7 +647,9 @@ static void InitTask(void* parameter)
 
     status = BME280_Init();
     configASSERT(STATUS_OK == status);
-    BH1750_Init();
+
+    status = BH1750_Init();
+    configASSERT(STATUS_OK == status);
 
     LCD_ScreenInit();
     LCD_ChangeBrightness(150);

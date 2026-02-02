@@ -13,70 +13,82 @@
 #define BH1750_POWER_DOWN 0x00
 #define BH1750_POWER_ON 0x01
 
-#define BH1750_CLY_HRM 0x10 // continous mode
-#define BH1750_OT_HRM 0x20  // one time mode
+#define BH1750_CONTINUOUS_HRM 0x10 // continuous mode
+#define BH1750_ONE_TIME_HRM 0x20   // one time mode
 
-static Status_t status     = STATUS_OK;
+static Status_t WriteCommand(uint8_t command);
+static Status_t ReadData(uint16_t* data);
+
 static uint8_t initialized = FALSE;
 
-static void WriteCommand(uint8_t command)
+static Status_t WriteCommand(uint8_t command)
 {
-    if (I2C_STATUS_OK == I2C_Manager_Transmit(BH1750_ADDRESS, &command, 1))
-    {
-        status = STATUS_OK;
-    }
-    else
+    if (I2C_STATUS_OK != I2C_Manager_Transmit(BH1750_ADDRESS, &command, 1))
     {
         LogPrintf(LOG_ERROR, "Writing command failed");
-        status = STATUS_I2C_ERROR;
+        return STATUS_I2C_ERROR;
     }
+    return STATUS_OK;
 }
 
-static uint16_t ReadData()
+static Status_t ReadData(uint16_t* data)
 {
+    uint8_t bytes[2];
 
-    uint8_t bytes[2] = { 0 };
-
-    if (I2C_STATUS_OK == I2C_Manager_Receive(BH1750_ADDRESS, bytes, 2))
-    {
-        status = STATUS_OK;
-    }
-    else
+    if (I2C_STATUS_OK != I2C_Manager_Receive(BH1750_ADDRESS, bytes, 2))
     {
         LogPrintf(LOG_ERROR, "Reading Data");
-        status = STATUS_I2C_ERROR;
+        return STATUS_I2C_ERROR;
     }
 
-    return ((uint16_t)bytes[0] << 8) | bytes[1];
+    *data = ((uint16_t)bytes[0] << 8) | bytes[1];
+    return STATUS_OK;
 }
 
-void BH1750_Init()
+Status_t BH1750_Init()
 {
+    Status_t status = STATUS_OK;
     if (I2C_STATUS_OK != I2C_Manager_IsDeviceReady(BH1750_ADDRESS))
     {
-        status = STATUS_TIMEOUT_ERROR;
         LogPrintf(LOG_ERROR, "Initializing sensor failed");
-        return;
+        return STATUS_TIMEOUT_ERROR;
     }
     initialized = TRUE;
-    status      = STATUS_OK;
 
-    WriteCommand(BH1750_POWER_ON);
-    WriteCommand(BH1750_CLY_HRM);
+    status = WriteCommand(BH1750_POWER_ON);
+    if (STATUS_OK != status)
+        return status;
+    status = WriteCommand(BH1750_CONTINUOUS_HRM);
+
+    return status;
 }
 
-float BH1750_ReadLux()
+Status_t BH1750_Deinit()
 {
-    if (!initialized)
+    initialized = FALSE;
+    return WriteCommand(BH1750_POWER_DOWN);
+}
+
+Status_t BH1750_ReadLux(float* lux)
+{
+    if (NULL == lux)
     {
-        return 0.0;
-    }
-    uint16_t raw = ReadData();
-    if (STATUS_OK != status)
-    {
-        return 0.0;
+        return STATUS_INVALID_PARAMS;
     }
 
-    float lux = raw / 1.2f;
-    return lux;
+    Status_t status = STATUS_OK;
+    if (!initialized)
+    {
+        return STATUS_INVALID_READING;
+    }
+    uint16_t raw = 0u;
+
+    status = ReadData(&raw);
+    if (STATUS_OK != status)
+    {
+        return STATUS_INVALID_READING;
+    }
+
+    *lux = raw / 1.2f;
+    return STATUS_OK;
 }
