@@ -2,7 +2,7 @@
 #include "stm32f4xx_hal.h"
 #include "typedef.h"
 
-#define VL530L0X_ADDRESS 0x29 << 1
+#define VL530L0X_ADDRESS (0x29 << 1)
 #define VL53_XSHUT_GPIO_Port GPIOC
 #define VL53_XSHUT_Pin GPIO_PIN_1
 

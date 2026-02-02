@@ -643,7 +643,7 @@ static void InitTask(void* parameter)
     LoggerInit();
 
     status = Init_VL53L0X(TRUE); // Initialize Distance sensor
-    configASSERT(pdPASS == status);
+    configASSERT(STATUS_OK == status);
 
     status = BME280_Init();
     configASSERT(STATUS_OK == status);
