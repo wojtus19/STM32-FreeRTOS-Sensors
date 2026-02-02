@@ -293,7 +293,7 @@ void LCD_FillScreen(uint16_t color)
 
     if (xQueueSend(lcdQueue, &frame, portMAX_DELAY) != pdPASS)
     {
-        LogPrintf("LCD Queue timeout");
+        LogPrintf(LOG_ERROR, "LCD Queue timeout");
     }
 }
 
@@ -310,7 +310,7 @@ void LCD_DrawImage(const uint16_t* image, int16_t xStart, int16_t yStart, int16_
 
     if (xQueueSend(lcdQueue, &frame, portMAX_DELAY) != pdPASS)
     {
-        LogPrintf("LCD Queue timeout");
+        LogPrintf(LOG_ERROR, "LCD Queue timeout");
     }
 }
 
@@ -327,7 +327,7 @@ void LCD_FillRect(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd
 
     if (xQueueSend(lcdQueue, &frame, portMAX_DELAY) != pdPASS)
     {
-        LogPrintf("LCD Queue timeout");
+        LogPrintf(LOG_ERROR, "LCD Queue timeout");
     }
 }
 
@@ -345,7 +345,7 @@ void LCD_DrawString(int16_t xStart, int16_t yStart, const char* pString, Font_t*
 
     if (xQueueSend(lcdQueue, &frame, portMAX_DELAY) != pdPASS)
     {
-        LogPrintf("LCD Queue timeout");
+        LogPrintf(LOG_ERROR, "LCD Queue timeout");
     }
 }
 

@@ -79,7 +79,7 @@ void I2C_ManagerTask(void* argument)
         }
         if (I2C_STATUS_OK != req.status)
         {
-            LogPrintf("[error] I2C status: %d\n", req.status);
+            LogPrintf(LOG_ERROR, "I2C status: %d", req.status);
         }
         xSemaphoreGive(req.doneSemaphore);
     }
@@ -98,7 +98,7 @@ I2C_Status_t I2C_Manager_Write(uint16_t DevAddress, uint16_t MemAddress, uint8_t
 
     if (xQueueSend(i2cQueue, &req, portMAX_DELAY) != pdPASS)
     {
-        LogPrintf("[error] I2C Queue timeout\n");
+        LogPrintf(LOG_ERROR, "I2C Queue timeout");
         req.status = I2C_STATUS_ERROR;
     }
     xSemaphoreTake(req.doneSemaphore, portMAX_DELAY);
@@ -120,7 +120,7 @@ I2C_Status_t I2C_Manager_Read(uint16_t DevAddress, uint16_t MemAddress, uint8_t*
 
     if (xQueueSend(i2cQueue, &req, portMAX_DELAY) != pdPASS)
     {
-        LogPrintf("[error] I2C Queue timeout\n");
+        LogPrintf(LOG_ERROR, "I2C Queue timeout");
         req.status = I2C_STATUS_ERROR;
     }
     xSemaphoreTake(req.doneSemaphore, portMAX_DELAY);
@@ -141,7 +141,7 @@ I2C_Status_t I2C_Manager_IsDeviceReady(uint16_t DevAddress)
 
     if (xQueueSend(i2cQueue, &req, portMAX_DELAY) != pdPASS)
     {
-        LogPrintf("[error] I2C Queue timeout\n");
+        LogPrintf(LOG_ERROR, "I2C Queue timeout");
         req.status = I2C_STATUS_ERROR;
     }
     xSemaphoreTake(req.doneSemaphore, portMAX_DELAY);
@@ -162,7 +162,7 @@ I2C_Status_t I2C_Manager_Transmit(uint16_t DevAddress, uint8_t* pData, uint16_t 
 
     if (xQueueSend(i2cQueue, &req, portMAX_DELAY) != pdPASS)
     {
-        LogPrintf("[error] I2C Queue timeout\n");
+        LogPrintf(LOG_ERROR, "I2C Queue timeout");
         req.status = I2C_STATUS_ERROR;
     }
     xSemaphoreTake(req.doneSemaphore, portMAX_DELAY);
@@ -183,7 +183,7 @@ I2C_Status_t I2C_Manager_Receive(uint16_t DevAddress, uint8_t* pData, uint16_t d
 
     if (xQueueSend(i2cQueue, &req, portMAX_DELAY) != pdPASS)
     {
-        LogPrintf("[error] I2C Queue timeout\n");
+        LogPrintf(LOG_ERROR, "I2C Queue timeout");
         req.status = I2C_STATUS_ERROR;
     }
     xSemaphoreTake(req.doneSemaphore, portMAX_DELAY);

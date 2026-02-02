@@ -142,7 +142,7 @@ static Status_t ReadRegister(uint8_t reg, uint8_t* buffer)
     }
     else
     {
-        LogPrintf("[error][BME280] ReadRegister failed\n");
+        LogPrintf(LOG_ERROR, "ReadRegister failed");
         return STATUS_I2C_ERROR;
     }
 }
@@ -155,7 +155,7 @@ static Status_t ReadMulti(uint8_t addr, uint8_t* dst, uint32_t size)
     }
     else
     {
-        LogPrintf("[error][BME280] ReadMulti failed\n");
+        LogPrintf(LOG_ERROR, "ReadMulti failed");
         return STATUS_I2C_ERROR;
     }
 }
@@ -168,7 +168,7 @@ static Status_t WriteRegister(uint8_t reg, uint8_t data)
     }
     else
     {
-        LogPrintf("[error][BME280] WriteRegister failed\n");
+        LogPrintf(LOG_ERROR, "WriteRegister failed");
         return STATUS_I2C_ERROR;
     }
 }
@@ -181,7 +181,7 @@ static Status_t GetTemperatureAndPressureCalibrationData()
     status          = ReadMulti(BME280_REG_TEMP_PRESS_CALIB_DATA, reg_data, BME280_LEN_TEMP_PRESS_CALIB_DATA);
     if (STATUS_OK != status)
     {
-        LogPrintf("[error][BME280] Temperature and pressure calibration data reading failed\n");
+        LogPrintf(LOG_ERROR, "Temperature and pressure calibration data reading failed");
         return status;
     }
 
@@ -210,7 +210,7 @@ static Status_t GetHumidityCalibrationData()
     status          = ReadMulti(BME280_REG_HUMIDITY_CALIB_DATA, reg_data, BME280_LEN_HUMIDITY_CALIB_DATA);
     if (STATUS_OK != status)
     {
-        LogPrintf("[error][BME280] Humidity calibration data reading failed\n");
+        LogPrintf(LOG_ERROR, "Humidity calibration data reading failed");
         return status;
     }
 
@@ -318,7 +318,7 @@ Status_t BME280_Init()
     Status_t status = STATUS_OK;
     if (I2C_STATUS_OK != I2C_Manager_IsDeviceReady(BME280_ADDRESS))
     {
-        LogPrintf("[error][BME280] Initializing sensor failed\n");
+        LogPrintf(LOG_ERROR, "Initializing sensor failed");
         return STATUS_TIMEOUT_ERROR;
     }
 
@@ -544,12 +544,13 @@ static void ParseSensorData(const uint8_t* reg_data, BME280_UncompData_t* uncomp
 
 BME280_Data_t BME280_ReadData()
 {
+
     BME280_UncompData_t uncompData = { 0 };
     BME280_Data_t compData         = { 0 };
     uint8_t regData[8]             = { 0 };
     if (I2C_STATUS_OK != I2C_Manager_Read(BME280_ADDRESS, BME280_DATA_REG, regData, 8))
     {
-        LogPrintf("[error][BME280] Error reading sensor data\n");
+        LogPrintf(LOG_ERROR, "Error reading sensor data");
         return compData; // return all zeros
     }
 

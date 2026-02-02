@@ -48,6 +48,7 @@
 #define PRIO_I2C 4
 #define PRIO_LCD 3
 #define PRIO_DISTANCE_SENSOR 2
+#define PRIO_LIGHT_SENSOR 2
 #define PRIO_BME 2
 #define PRIO_LOGGER 1
 #define PRIO_DRAW_IMAGE 1
@@ -566,7 +567,7 @@ static void DistanceMeasureTask(void* parameters)
         /* Toggle Blue LED */
         HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
         distance = readRangeSingleMillimeters();
-        LogPrintf("Distance: %d\n", distance);
+        LogPrintf(LOG_INFO, "Distance: %d\n", distance);
         itoa(distance, distanceStr, 10);
 
         LCD_FillRect(0, 0, LCD_WIDTH, 60, BLACK);
@@ -584,10 +585,10 @@ static void BMETask(void* parameters)
     char tempStr[8], pressureStr[8], humidityStr[8];
     for (;;)
     {
-        // bme_data             = BME280_ReadData();
-        bme_data.temperature = BME280_ReadTemperature();
-        bme_data.pressure    = BME280_ReadPressure();
-        bme_data.humidity    = BME280_ReadHumidity();
+        bme_data = BME280_ReadData();
+        // bme_data.temperature = BME280_ReadTemperature();
+        // bme_data.pressure    = BME280_ReadPressure();
+        // bme_data.humidity    = BME280_ReadHumidity();
 
         LCD_FillRect(0, 60, LCD_WIDTH, 180, BLACK);
 
@@ -649,21 +650,21 @@ static void InitTask(void* parameter)
     LCD_FillScreen(BLACK);
     // LCD_DrawImage(shrek_img, 0, 0, LCD_WIDTH, LCD_HEIGHT);
 
-    LogPrintf("[info][%lu] Sensors initialized\n", xTaskGetTickCount() * portTICK_PERIOD_MS);
+    LogPrintf(LOG_INFO, "Sensors initialized\n", xTaskGetTickCount() * portTICK_PERIOD_MS);
 
-    status = xTaskCreate(DistanceMeasureTask, "Distance-Measure", 200, "", PRIO_DISTANCE_SENSOR, &distance_measure_task_handle);
+    status = xTaskCreate(DistanceMeasureTask, "Distance", 200, "", PRIO_DISTANCE_SENSOR, &distance_measure_task_handle);
     configASSERT(pdPASS == status);
 
-    status = xTaskCreate(BMETask, "BME", 768, "", PRIO_BME, &bme_task_handle);
+    status = xTaskCreate(BMETask, "BME280", 768, "", PRIO_BME, &bme_task_handle);
     configASSERT(pdPASS == status);
 
-    status = xTaskCreate(LCDScreenTask, "LCD-Screen", 200, "", PRIO_LCD, &LCD_screen_task_handle);
+    status = xTaskCreate(LCDScreenTask, "LCDScreen", 200, "", PRIO_LCD, &LCD_screen_task_handle);
     configASSERT(pdPASS == status);
 
-    status = xTaskCreate(LoggerTask, "Logger", 512, NULL, PRIO_LOGGER, &logger_task_handle);
+    status = xTaskCreate(LoggerTask, "Logger", 1024, NULL, PRIO_LOGGER, &logger_task_handle);
     configASSERT(pdPASS == status);
 
-    status = xTaskCreate(LightSensorTask, "Light-Sensor", 512, NULL, 3, &light_sensor_task_handle);
+    status = xTaskCreate(LightSensorTask, "Light", 512, NULL, PRIO_LIGHT_SENSOR, &light_sensor_task_handle);
     configASSERT(pdPASS == status);
 
     // status = xTaskCreate(DrawImageTask, "Draw-Image", 512, NULL, PRIO_DRAW_IMAGE, &draw_image_task_handle);

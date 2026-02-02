@@ -7,6 +7,7 @@
 
 #include "logger.h"
 #include "FreeRTOS.h"
+#include "stdint.h"
 #include "stm32f4xx_hal.h"
 #include "stream_buffer.h"
 #include "task.h"
@@ -19,20 +20,33 @@
 static StreamBufferHandle_t logStream;
 extern UART_HandleTypeDef huart2;
 extern TaskHandle_t logger_task_handle;
-// static uint8_t txBuffer[LOGGER_BUFFER_SIZE];
+static LogSeverity_t currentSeverity = LOG_WARNING;
+
+static const char* logSeverityStr[] = { "DEBUG", "INFO", "WARNING", "ERROR" };
 
 void LoggerInit(void)
 {
     logStream = xStreamBufferCreate(LOGGER_STREAM_SIZE, 1);
 }
 
-void LogPrintf(const char* fmt, ...)
+void LogPrintf(LogSeverity_t severity, const char* fmt, ...)
 {
+    if (severity < currentSeverity)
+        return;
+
     static char buffer[LOGGER_BUFFER_SIZE];
 
+    uint32_t timestamp = xTaskGetTickCount() * portTICK_PERIOD_MS;
     va_list args;
     va_start(args, fmt);
-    int len = vsnprintf(buffer, sizeof(buffer), fmt, args);
+    int len = 0;
+
+    // Add prefix [timestamp][severity][task name]
+    len += snprintf(buffer, sizeof(buffer), "[%lu.%03lu][%s][%s] ", timestamp / 1000, timestamp % 1000, logSeverityStr[severity], pcTaskGetName(NULL));
+
+    len += vsnprintf(buffer + len, sizeof(buffer) + len, fmt, args);
+
+    len += snprintf(buffer + len, sizeof(buffer) - len, "\r\n");
     va_end(args);
 
     if (len > 0)
