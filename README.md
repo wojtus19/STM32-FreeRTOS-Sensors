@@ -10,6 +10,7 @@ This project demonstrates the use of FreeRTOS on the STM32F407G-DISC1 board, int
   - Each sensor task sends I2C requests to a central `I2C_Manager` task for coordinated bus access.
 - **Logger**: A dedicated task for logging data via UART with DMA.
 - **Display**: A dedicated task for displaying sensor data on an ST7789V2 LCD via SPI with DMA.
+- **Diagnostics**: A dedicated task for measuring CPU Usage, Runtime stats and highwater marks
 
 ## Hardware Requirements
 - STM32F407G-DISC1 development board.
