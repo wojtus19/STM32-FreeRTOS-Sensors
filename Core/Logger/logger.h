@@ -15,6 +15,8 @@
 #define LOGGER_BUFFER_SIZE 256
 #define LOGGER_STREAM_SIZE 1024
 
+#define DEBUG_LOGS_ENABLED 1
+
 typedef enum
 {
     LOG_DEBUG = 0,

@@ -20,7 +20,12 @@
 static StreamBufferHandle_t logStream;
 extern UART_HandleTypeDef huart2;
 extern TaskHandle_t logger_task_handle;
-static LogSeverity_t currentSeverity = LOG_WARNING;
+
+#ifdef DEBUG_LOGS_ENABLED
+static LogSeverity_t currentSeverity = LOG_DEBUG;
+#else
+static LogSeverity_t currentSeverity = LOG_INFO;
+#endif
 
 static const char* logSeverityStr[] = { "DEBUG", "INFO", "WARNING", "ERROR" };
 

@@ -47,6 +47,9 @@
 	extern uint32_t SystemCoreClock;
 #endif
 
+extern uint32_t GetRunTimeCounterValue(void);
+extern void ConfigureTimerForRunTimeStats(void);
+
 #define configUSE_PREEMPTION			1
 #define configUSE_IDLE_HOOK				0
 #define configUSE_TICK_HOOK				0
@@ -66,7 +69,14 @@
 #define configUSE_MALLOC_FAILED_HOOK	0
 #define configUSE_APPLICATION_TASK_TAG	0
 #define configUSE_COUNTING_SEMAPHORES	1
-#define configGENERATE_RUN_TIME_STATS	0
+
+#define configGENERATE_RUN_TIME_STATS      		1
+#define configUSE_STATS_FORMATTING_FUNCTIONS	1
+#define INCLUDE_uxTaskGetStackHighWaterMark 	1
+
+#define configRUN_TIME_COUNTER_TYPE uint32_t
+#define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS() ConfigureTimerForRunTimeStats()
+#define portGET_RUN_TIME_COUNTER_VALUE()     GetRunTimeCounterValue()
 
 /* Co-routine definitions. */
 #define configUSE_CO_ROUTINES 		0
